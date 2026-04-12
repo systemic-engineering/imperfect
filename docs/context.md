@@ -11,7 +11,7 @@ The `.eh()` pipeline is clean when every step returns `Imperfect`. But sometimes
 ## Basic usage
 
 ```rust
-use imperfect::{Imperfect, Eh, ConvergenceLoss};
+use terni::{Imperfect, Eh, ConvergenceLoss};
 
 fn process() -> Imperfect<i32, String, ConvergenceLoss> {
     let mut eh = Eh::new();
@@ -42,7 +42,7 @@ fn process() -> Imperfect<i32, String, ConvergenceLoss> {
 Creates a context with zero accumulated loss.
 
 ```rust
-use imperfect::{Eh, ConvergenceLoss};
+use terni::{Eh, ConvergenceLoss};
 
 let eh: Eh<ConvergenceLoss> = Eh::new();
 assert!(eh.loss().is_none());
@@ -63,7 +63,7 @@ Aliases for `.eh()`, same as on `Imperfect` itself.
 Inspect accumulated loss without consuming the context. Returns `None` if no loss has accumulated (all steps were Success).
 
 ```rust
-use imperfect::{Imperfect, Eh, ConvergenceLoss};
+use terni::{Imperfect, Eh, ConvergenceLoss};
 
 let mut eh: Eh<ConvergenceLoss> = Eh::new();
 assert!(eh.loss().is_none());
@@ -90,7 +90,7 @@ This is the exit point. It converts back from `Result`-land to `Imperfect`.
 `Eh` is the bridge between `Imperfect` and `Result`. Inside an `Eh` block, you can freely mix both:
 
 ```rust
-use imperfect::{Imperfect, Eh, ConvergenceLoss};
+use terni::{Imperfect, Eh, ConvergenceLoss};
 use std::num::ParseIntError;
 
 fn parse_and_validate(input: &str) -> Imperfect<i32, String, ConvergenceLoss> {
@@ -132,7 +132,7 @@ The key insight: `Eh.eh()` returns `Result`, so you can match on it for early re
 ## Example: payment verification
 
 ```rust
-use imperfect::{Imperfect, Eh, ConvergenceLoss};
+use terni::{Imperfect, Eh, ConvergenceLoss};
 
 struct Payment { amount: u64, currency: String }
 struct VerifiedPayment { amount: u64, currency: String, risk_score: f64 }

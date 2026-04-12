@@ -37,7 +37,7 @@ For `.eh()` to be a genuine bind, it must satisfy three laws:
 `return a >>= f  ==  f a`
 
 ```rust
-use imperfect::{Imperfect, ConvergenceLoss};
+use terni::{Imperfect, ConvergenceLoss};
 
 fn f(x: i32) -> Imperfect<i32, String, ConvergenceLoss> {
     Imperfect::Partial(x * 2, ConvergenceLoss::new(1))
@@ -56,7 +56,7 @@ assert_eq!(left, right);
 `m >>= return  ==  m`
 
 ```rust
-use imperfect::{Imperfect, ConvergenceLoss};
+use terni::{Imperfect, ConvergenceLoss};
 
 let m = Imperfect::<i32, String, ConvergenceLoss>::Partial(5, ConvergenceLoss::new(3));
 
@@ -72,7 +72,7 @@ Binding through `Success` (return) preserves the original value and loss.
 `(m >>= f) >>= g  ==  m >>= (|x| f(x) >>= g)`
 
 ```rust
-use imperfect::{Imperfect, ConvergenceLoss};
+use terni::{Imperfect, ConvergenceLoss};
 
 fn f(x: i32) -> Imperfect<i32, String, ConvergenceLoss> {
     Imperfect::Partial(x + 1, ConvergenceLoss::new(2))

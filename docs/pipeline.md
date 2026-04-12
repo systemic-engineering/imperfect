@@ -19,7 +19,7 @@ Four rules. No exceptions.
 No loss on either side. The pipeline is perfect.
 
 ```rust
-use imperfect::{Imperfect, ConvergenceLoss};
+use terni::{Imperfect, ConvergenceLoss};
 
 let result = Imperfect::<i32, String, ConvergenceLoss>::Success(1)
     .eh(|x| Imperfect::Success(x + 1));
@@ -32,7 +32,7 @@ assert_eq!(result, Imperfect::Success(2));
 The function introduced loss. It carries forward.
 
 ```rust
-use imperfect::{Imperfect, ConvergenceLoss};
+use terni::{Imperfect, ConvergenceLoss};
 
 let result = Imperfect::<i32, String, ConvergenceLoss>::Success(1)
     .eh(|x| Imperfect::Partial(x + 1, ConvergenceLoss::new(3)));
@@ -46,7 +46,7 @@ assert_eq!(result.loss().steps(), 3);
 Both sides had loss. Losses combine.
 
 ```rust
-use imperfect::{Imperfect, ConvergenceLoss};
+use terni::{Imperfect, ConvergenceLoss};
 
 let result = Imperfect::<i32, String, ConvergenceLoss>::Partial(1, ConvergenceLoss::new(3))
     .eh(|x| Imperfect::Partial(x + 1, ConvergenceLoss::new(5)));
@@ -60,7 +60,7 @@ assert_eq!(result.loss().steps(), 5);  // max(3, 5) for ConvergenceLoss
 Failure short-circuits. If the input is Failure, `f` is never called. If `f` returns Failure, prior loss is discarded — the value is gone.
 
 ```rust
-use imperfect::{Imperfect, ConvergenceLoss};
+use terni::{Imperfect, ConvergenceLoss};
 
 // Failure input: f is never called
 let result = Imperfect::<i32, String, ConvergenceLoss>::Failure("gone".into())
@@ -80,7 +80,7 @@ assert!(result.is_err());
 `.eh()` composes naturally. Each step sees the value from the previous step. Loss accumulates across the entire chain.
 
 ```rust
-use imperfect::{Imperfect, ConvergenceLoss};
+use terni::{Imperfect, ConvergenceLoss};
 
 fn validate(input: &str) -> Imperfect<i32, String, ConvergenceLoss> {
     match input.parse::<i32>() {
@@ -123,7 +123,7 @@ assert_eq!(result.loss().steps(), 1);  // max(1, 1) = 1 — sign corrected + cla
 Use whichever makes your code clearest. They compile to the same thing.
 
 ```rust
-use imperfect::{Imperfect, ConvergenceLoss};
+use terni::{Imperfect, ConvergenceLoss};
 
 // All three are identical
 let a = Imperfect::<i32, String, ConvergenceLoss>::Success(1)

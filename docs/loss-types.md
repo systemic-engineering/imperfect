@@ -31,7 +31,7 @@ Distance to crystal. How many steps remain before the result is fully converged.
 **Combine semantics:** `max`. The furthest-from-crystal step dominates. If one step is 3 iterations away and another is 7, the pipeline is 7 iterations away.
 
 ```rust
-use imperfect::{Imperfect, ConvergenceLoss};
+use terni::{Imperfect, ConvergenceLoss};
 
 // Solver ran but didn't fully converge
 let step1 = Imperfect::<f64, String, ConvergenceLoss>::Partial(3.14, ConvergenceLoss::new(5));
@@ -55,7 +55,7 @@ Which dimensions were dark during observation. Tracks both which specific dimens
 **Combine semantics:** Union of dark dimensions, max of aperture fraction. If step A missed dims [1, 3] and step B missed dims [2, 3], the pipeline missed [1, 2, 3].
 
 ```rust
-use imperfect::{Imperfect, ApertureLoss};
+use terni::{Imperfect, ApertureLoss};
 
 // Observed 8 of 10 dimensions — dims 2 and 7 were dark
 let step1 = Imperfect::<Vec<f64>, String, ApertureLoss>::Partial(
@@ -82,7 +82,7 @@ Decision uncertainty at a routing point. Measured as Shannon entropy of the rout
 **Combine semantics:** Max entropy (most uncertain routing dominates), min gap (tightest race dominates).
 
 ```rust
-use imperfect::{Imperfect, RoutingLoss};
+use terni::{Imperfect, RoutingLoss};
 
 // Routed to model A with moderate confidence
 let step1 = Imperfect::<String, String, RoutingLoss>::Partial(
@@ -106,7 +106,7 @@ assert_eq!(result.loss().runner_up_gap(), 0.3);
 Implement `Loss` for any domain-specific measurement. The only requirements: `Clone + Default`, the four trait methods, and `combine` must be associative.
 
 ```rust
-use imperfect::{Loss, Imperfect};
+use terni::{Loss, Imperfect};
 
 /// Tracks accumulated latency as loss.
 #[derive(Clone, Debug, PartialEq, Default)]

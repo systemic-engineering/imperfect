@@ -32,7 +32,7 @@
 //! ### Pipeline
 //!
 //! ```rust
-//! use imperfect::{Imperfect, ConvergenceLoss};
+//! use terni::{Imperfect, ConvergenceLoss};
 //!
 //! let result = Imperfect::<i32, String, ConvergenceLoss>::Success(1)
 //!     .eh(|x| Imperfect::Success(x * 2))
@@ -45,7 +45,7 @@
 //! ### Explicit Context
 //!
 //! ```rust
-//! use imperfect::{Imperfect, Eh, ConvergenceLoss};
+//! use terni::{Imperfect, Eh, ConvergenceLoss};
 //!
 //! let mut eh = Eh::new();
 //! let a = eh.imp(Imperfect::<i32, String, ConvergenceLoss>::Success(1)).unwrap();

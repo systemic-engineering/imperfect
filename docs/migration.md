@@ -33,7 +33,7 @@ fn process(input: &str) -> Result<i32, String> {
 After:
 
 ```rust
-use imperfect::{Imperfect, ConvergenceLoss};
+use terni::{Imperfect, ConvergenceLoss};
 
 fn process(input: &str) -> Imperfect<i32, String, ConvergenceLoss> {
     let n: i32 = match input.parse() {
@@ -68,7 +68,7 @@ fn run(a: &str, b: &str) -> Result<i32, String> {
 After:
 
 ```rust
-use imperfect::{Imperfect, Eh, ConvergenceLoss};
+use terni::{Imperfect, Eh, ConvergenceLoss};
 
 # fn process(_: &str) -> Imperfect<i32, String, ConvergenceLoss> {
 #     Imperfect::Success(1)
@@ -84,7 +84,7 @@ fn run(a: &str, b: &str) -> Imperfect<i32, String, ConvergenceLoss> {
 Or use the pipeline directly:
 
 ```rust
-use imperfect::{Imperfect, ConvergenceLoss};
+use terni::{Imperfect, ConvergenceLoss};
 
 # fn process(_: &str) -> Imperfect<i32, String, ConvergenceLoss> {
 #     Imperfect::Success(1)
@@ -99,7 +99,7 @@ fn run(a: &str, b: &str) -> Imperfect<i32, String, ConvergenceLoss> {
 `From` conversions let `Imperfect` and `Result` coexist:
 
 ```rust
-use imperfect::{Imperfect, ConvergenceLoss};
+use terni::{Imperfect, ConvergenceLoss};
 
 // Result → Imperfect (Ok becomes Success, Err becomes Failure)
 let from_result: Imperfect<i32, String, ConvergenceLoss> =

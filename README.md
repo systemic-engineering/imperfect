@@ -1,19 +1,19 @@
-# Imperfect
+# terni
 
 > I wanna thank Brene Brown for her work.
 
 Ternary error handling for Rust. Because computation is not binary.
 
-[![crates.io](https://img.shields.io/crates/v/imperfect.svg)](https://crates.io/crates/imperfect)
-[![docs.rs](https://docs.rs/imperfect/badge.svg)](https://docs.rs/imperfect)
-[![license](https://img.shields.io/crates/l/imperfect.svg)](https://github.com/systemic-engineering/prism/blob/main/imperfect/LICENSE)
+[![crates.io](https://img.shields.io/crates/v/terni.svg)](https://crates.io/crates/terni)
+[![docs.rs](https://docs.rs/terni/badge.svg)](https://docs.rs/terni)
+[![license](https://img.shields.io/crates/l/terni.svg)](https://github.com/systemic-engineering/prism/blob/main/imperfect/LICENSE)
 
 ## `eh`
 
 The type. Three states instead of two.
 
 ```rust
-use imperfect::{Imperfect, ConvergenceLoss};
+use terni::{Imperfect, ConvergenceLoss};
 
 let perfect: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Success(42);
 let lossy = Imperfect::Partial(42, ConvergenceLoss::new(3));
@@ -24,7 +24,7 @@ assert!(lossy.is_partial());
 assert!(failed.is_err());
 ```
 
-[`Loss`](https://docs.rs/imperfect/latest/imperfect/trait.Loss.html) measures what didn't survive. It's a monoid: `zero()` identity, `combine` associative, `total()` absorbing.
+[`Loss`](https://docs.rs/terni/latest/terni/trait.Loss.html) measures what didn't survive. It's a monoid: `zero()` identity, `combine` associative, `total()` absorbing.
 
 Three loss types ship with the crate:
 - **`ConvergenceLoss`** — distance to crystal. Combine: max.
@@ -38,7 +38,7 @@ Three loss types ship with the crate:
 The bind. Chain operations, accumulate loss.
 
 ```rust
-use imperfect::{Imperfect, ConvergenceLoss};
+use terni::{Imperfect, ConvergenceLoss};
 
 let result = Imperfect::<i32, String, ConvergenceLoss>::Success(1)
     .eh(|x| Imperfect::Success(x * 2))
@@ -51,7 +51,7 @@ assert!(result.is_partial());
 For explicit context with loss accumulation:
 
 ```rust
-use imperfect::{Imperfect, Eh, ConvergenceLoss};
+use terni::{Imperfect, Eh, ConvergenceLoss};
 
 let mut eh = Eh::new();
 let a = eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Success(1)).unwrap();
