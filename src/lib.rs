@@ -161,6 +161,9 @@ impl<T, E, L: Loss> Imperfect<T, E, L> {
 
     /// Propagate accumulated loss from `self` through `next`.
     ///
+    /// Deprecated in favor of [`eh`](Self::eh) / [`imperfect`](Self::imperfect) / [`tri`](Self::tri).
+    /// Kept for backward compatibility.
+    ///
     /// - Success + next → next (no loss to propagate)
     /// - Partial(_, loss) + Success(v) → Partial(v, loss)
     /// - Partial(_, loss1) + Partial(v, loss2) → Partial(v, loss1.combine(loss2))
@@ -170,11 +173,7 @@ impl<T, E, L: Loss> Imperfect<T, E, L> {
         match self {
             Imperfect::Failure(_) => panic!("compose called on Failure — check is_ok() first"),
             Imperfect::Success(_) => next,
-            Imperfect::Partial(_, loss) => match next {
-                Imperfect::Success(v) => Imperfect::Partial(v, loss),
-                Imperfect::Partial(v, loss2) => Imperfect::Partial(v, loss.combine(loss2)),
-                Imperfect::Failure(e) => Imperfect::Failure(e),
-            },
+            Imperfect::Partial(_, loss) => Imperfect::<(), E2, L>::Partial((), loss).eh(|_| next),
         }
     }
 }
