@@ -132,6 +132,33 @@ impl<T, E, L: Loss> Imperfect<T, E, L> {
         }
     }
 
+    /// Terni-functor bind. Chain an operation, accumulating loss.
+    ///
+    /// - Success: apply f, return its result
+    /// - Partial: apply f, combine losses
+    /// - Failure: short-circuit, f never called
+    pub fn eh<U>(self, f: impl FnOnce(T) -> Imperfect<U, E, L>) -> Imperfect<U, E, L> {
+        match self {
+            Imperfect::Success(t) => f(t),
+            Imperfect::Partial(t, loss) => match f(t) {
+                Imperfect::Success(u) => Imperfect::Partial(u, loss),
+                Imperfect::Partial(u, loss2) => Imperfect::Partial(u, loss.combine(loss2)),
+                Imperfect::Failure(e) => Imperfect::Failure(e),
+            },
+            Imperfect::Failure(e) => Imperfect::Failure(e),
+        }
+    }
+
+    /// Alias for [`eh`](Self::eh). Readable prose form of the terni-functor bind.
+    pub fn imperfect<U>(self, f: impl FnOnce(T) -> Imperfect<U, E, L>) -> Imperfect<U, E, L> {
+        self.eh(f)
+    }
+
+    /// Alias for [`eh`](Self::eh). Mathematical form — the terni-functor bind.
+    pub fn tri<U>(self, f: impl FnOnce(T) -> Imperfect<U, E, L>) -> Imperfect<U, E, L> {
+        self.eh(f)
+    }
+
     /// Propagate accumulated loss from `self` through `next`.
     ///
     /// - Success + next → next (no loss to propagate)
