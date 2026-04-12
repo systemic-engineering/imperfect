@@ -1,6 +1,6 @@
 [package]
 name = "imperfect"
-version = "0.1.0"
+version = "0.0.0-dev"
 edition = "2021"
 license = "Apache-2.0"
 description = "Ternary error handling: Success, Partial with measured loss, Failure. Because computation is not binary."

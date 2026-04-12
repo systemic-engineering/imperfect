@@ -5,35 +5,9 @@ on:
     types: [published]
 
 jobs:
-  publish-imperfect:
-    name: Publish imperfect to crates.io
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: systemic-engineering/ci/actions/nix-setup@main
-
-      - name: Verify version matches tag
-        run: |
-          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-          CARGO_VERSION=$(nix develop -c cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "imperfect") | .version')
-          if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
-            echo "Tag version ($TAG_VERSION) does not match Cargo.toml version ($CARGO_VERSION)"
-            exit 1
-          fi
-
-      - name: Publish imperfect
-        run: nix develop -c cargo publish -p imperfect
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-
-  notify-on-failure:
-    if: failure()
-    needs: [publish-imperfect]
-    uses: systemic-engineering/ci/.github/workflows/notify-ntfy.yml@main
+  publish:
+    uses: systemic-engineering/ci/.github/workflows/rust-nix-publish.yml@main
     with:
-      repo: ${{ github.repository }}
-      workflow: ${{ github.workflow }}
-      run_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      crate-name: imperfect
     secrets:
-      NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+      cargo-registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
