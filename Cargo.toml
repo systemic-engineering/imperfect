@@ -1,10 +1,10 @@
 [package]
 name = "imperfect"
-version = "1.0.0"
+version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Ternary error handling: Success, Partial with measured loss, Failure. Because computation is not binary."
-repository = "https://github.com/systemic-engineering/imperfect"
+repository = "https://github.com/systemic-engineering/prism"
 keywords = ["error-handling", "loss", "ternary", "imperfect", "type-system"]
 categories = ["rust-patterns", "no-std"]
 readme = "README.md"

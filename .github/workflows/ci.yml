@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    uses: systemic-engineering/ci/.github/workflows/rust-nix-check.yml@main
+    with:
+      coverage_threshold: '99'
+
+  format:
+    name: format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: systemic-engineering/ci/actions/nix-setup@main
+      - name: Check formatting
+        run: nix develop -c cargo fmt --all -- --check
+
+  notify-on-failure:
+    if: failure()
+    needs: [check, format]
+    uses: systemic-engineering/ci/.github/workflows/notify-ntfy.yml@main
+    with:
+      repo: ${{ github.repository }}
+      workflow: ${{ github.workflow }}
+      run_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    secrets:
+      NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
