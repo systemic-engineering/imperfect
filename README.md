@@ -1,6 +1,6 @@
 # imperfect
 
-I wanna thank Brene Brown for her work.
+I wanna thank Brené Brown for her work.
 
 
 `Result` extended with partial success. Three states:
