@@ -114,10 +114,10 @@ assert_eq!(result.loss().steps(), 1);  // max(1, 1) = 1 — sign corrected + cla
 
 ## Aliases
 
-`.imperfect()` and `.tri()` are identical to `.eh()`. Same function, different name.
+`.imp()` and `.tri()` are identical to `.eh()`. Same function, different name.
 
 - **`.eh()`** — the shrug. Short, informal, gets the point across.
-- **`.imperfect()`** — the word. Self-documenting in code that reads like prose.
+- **`.imp()`** — the word. Self-documenting in code that reads like prose.
 - **`.tri()`** — the math. For code where "terni-functor" is the right frame.
 
 Use whichever makes your code clearest. They compile to the same thing.
@@ -129,7 +129,7 @@ use imperfect::{Imperfect, ConvergenceLoss};
 let a = Imperfect::<i32, String, ConvergenceLoss>::Success(1)
     .eh(|x| Imperfect::Success(x + 1));
 let b = Imperfect::<i32, String, ConvergenceLoss>::Success(1)
-    .imperfect(|x| Imperfect::Success(x + 1));
+    .imp(|x| Imperfect::Success(x + 1));
 let c = Imperfect::<i32, String, ConvergenceLoss>::Success(1)
     .tri(|x| Imperfect::Success(x + 1));
 

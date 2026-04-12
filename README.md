@@ -61,7 +61,7 @@ let result: Imperfect<i32, String, ConvergenceLoss> = eh.finish(b);
 assert!(result.is_partial());
 ```
 
-`.imperfect()` and `.tri()` are aliases for `.eh()` — same bind, different name. Use whichever reads best in your code.
+`.imp()` and `.tri()` are aliases for `.eh()` — same bind, different name. Use whichever reads best in your code.
 
 [Pipeline guide →](docs/pipeline.md) · [Context guide →](docs/context.md)
 

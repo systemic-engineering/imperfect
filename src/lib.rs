@@ -26,7 +26,7 @@
 //! loss through the middle state. The bind operator comes in three flavors:
 //!
 //! - `.eh()` — the shrug. For engineers who get it.
-//! - `.imperfect()` — the word. For engineers who read it.
+//! - `.imp()` — the name. For the mischievous ones.
 //! - `.tri()` — the math. For engineers who know what a terni-functor is.
 //!
 //! ### Pipeline
@@ -48,8 +48,8 @@
 //! use imperfect::{Imperfect, Eh, ConvergenceLoss};
 //!
 //! let mut eh = Eh::new();
-//! let a = eh.imperfect(Imperfect::<i32, String, ConvergenceLoss>::Success(1)).unwrap();
-//! let b = eh.imperfect(Imperfect::<_, String, _>::Partial(a + 1, ConvergenceLoss::new(5))).unwrap();
+//! let a = eh.imp(Imperfect::<i32, String, ConvergenceLoss>::Success(1)).unwrap();
+//! let b = eh.imp(Imperfect::<_, String, _>::Partial(a + 1, ConvergenceLoss::new(5))).unwrap();
 //! let result: Imperfect<i32, String, ConvergenceLoss> = eh.finish(b);
 //!
 //! assert!(result.is_partial());
@@ -184,8 +184,8 @@ impl<T, E, L: Loss> Imperfect<T, E, L> {
         }
     }
 
-    /// Alias for [`eh`](Self::eh). Readable prose form of the terni-functor bind.
-    pub fn imperfect<U>(self, f: impl FnOnce(T) -> Imperfect<U, E, L>) -> Imperfect<U, E, L> {
+    /// Alias for [`eh`](Self::eh). The name. For the mischievous ones.
+    pub fn imp<U>(self, f: impl FnOnce(T) -> Imperfect<U, E, L>) -> Imperfect<U, E, L> {
         self.eh(f)
     }
 
@@ -246,8 +246,8 @@ impl<L: Loss> Eh<L> {
         }
     }
 
-    /// Alias for [`eh`](Self::eh).
-    pub fn imperfect<T, E>(&mut self, imp: Imperfect<T, E, L>) -> Result<T, E> {
+    /// Alias for [`eh`](Self::eh). The name. For the mischievous ones.
+    pub fn imp<T, E>(&mut self, imp: Imperfect<T, E, L>) -> Result<T, E> {
         self.eh(imp)
     }
 
@@ -1176,9 +1176,9 @@ mod tests {
     }
 
     #[test]
-    fn imperfect_alias_works() {
+    fn imp_alias_works() {
         let result = Imperfect::<i32, String, ConvergenceLoss>::Success(1)
-            .imperfect(|x| Imperfect::Success(x + 1));
+            .imp(|x| Imperfect::Success(x + 1));
         assert_eq!(result, Imperfect::Success(2));
     }
 
@@ -1255,7 +1255,7 @@ mod tests {
     #[test]
     fn eh_context_imperfect_alias() {
         let mut eh = Eh::new();
-        let a = eh.imperfect(Imperfect::<i32, String, ConvergenceLoss>::Success(1));
+        let a = eh.imp(Imperfect::<i32, String, ConvergenceLoss>::Success(1));
         assert_eq!(a, Ok(1));
     }
 

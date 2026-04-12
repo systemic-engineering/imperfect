@@ -48,7 +48,7 @@ Extracts the value from an `Imperfect`, accumulating any loss. Returns `Ok(T)` f
 
 This is where loss gets absorbed into the context. Success adds nothing. Partial adds its loss (via `combine` if loss already exists). Failure returns `Err` immediately.
 
-### `.imperfect()` and `.tri()`
+### `.imp()` and `.tri()`
 
 Aliases for `.eh()`, same as on `Imperfect` itself.
 
