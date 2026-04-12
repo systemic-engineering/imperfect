@@ -17,12 +17,13 @@ Most real transformations are not perfect and not failed. They are partial: a va
 ## Usage
 
 ```rust
-use imperfect::{Imperfect, ShannonLoss, Loss};
+use imperfect::{Imperfect, ConvergenceLoss, Loss};
 
 // Three states
-let perfect: Imperfect<u32, String> = Imperfect::Success(42);
-let lossy: Imperfect<u32, String> = Imperfect::Partial(42, ShannonLoss::new(1.5));
-let failed: Imperfect<u32, String> = Imperfect::Failure("gone".into());
+let perfect: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Success(42);
+let lossy: Imperfect<u32, String, ConvergenceLoss> =
+    Imperfect::Partial(42, ConvergenceLoss::new(3));
+let failed: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Failure("gone".into());
 
 // Check state -- is_ok() returns true for Success and Partial
 assert!(perfect.is_ok());
@@ -36,8 +37,8 @@ assert_eq!(failed.ok(), None);
 
 // Measure loss
 assert!(perfect.loss().is_zero());
-assert_eq!(lossy.loss().as_f64(), 1.5);
-assert!(failed.loss().as_f64().is_infinite());  // total loss
+assert_eq!(lossy.loss().steps(), 3);
+assert_eq!(failed.loss().steps(), usize::MAX);  // total loss
 ```
 
 ## Composition
@@ -45,14 +46,16 @@ assert!(failed.loss().as_f64().is_infinite());  // total loss
 `compose` propagates accumulated loss through a chain of results:
 
 ```rust
-use imperfect::{Imperfect, ShannonLoss};
+use imperfect::{Imperfect, ConvergenceLoss};
 
-let step1: Imperfect<u32, String> = Imperfect::Partial(10, ShannonLoss::new(1.0));
-let step2: Imperfect<u32, String> = Imperfect::Partial(20, ShannonLoss::new(0.5));
+let step1: Imperfect<u32, String, ConvergenceLoss> =
+    Imperfect::Partial(10, ConvergenceLoss::new(3));
+let step2: Imperfect<u32, String, ConvergenceLoss> =
+    Imperfect::Partial(20, ConvergenceLoss::new(5));
 
 let result = step1.compose(step2);
 assert_eq!(result.ok(), Some(20));
-assert_eq!(result.loss().as_f64(), 1.5);  // losses accumulate
+assert_eq!(result.loss().steps(), 5);  // ConvergenceLoss takes the max
 ```
 
 ## The Loss trait
@@ -70,9 +73,13 @@ pub trait Loss: Clone + Default {
 }
 ```
 
-`ShannonLoss` is the default implementation. Information loss measured in bits (base-2 logarithm). Losses combine by addition -- this is Shannon's channel coding theorem: information lost through sequential channels sums.
+Three domain-specific implementations ship with the crate:
 
-Implement `Loss` for domain-specific loss types. The `Imperfect` type is parameterized over any `L: Loss`.
+- **`ConvergenceLoss`** -- distance to crystal (iterative refinement). Combine takes the max.
+- **`ApertureLoss`** -- which dimensions were dark (partial observation). Combine takes the union.
+- **`RoutingLoss`** -- decision uncertainty at a routing point (entropy + runner-up gap). Combine takes max entropy, min gap.
+
+Implement `Loss` for your own domain-specific loss types. The `Imperfect` type is parameterized over any `L: Loss`.
 
 ## PbtA lineage
 
