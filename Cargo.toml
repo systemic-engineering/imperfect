@@ -5,7 +5,7 @@ edition = "2021"
 license = "Apache-2.0"
 description = "Ternary error handling: Success, Partial with measured loss, Failure. Because computation is not binary."
 repository = "https://github.com/systemic-engineering/prism"
-keywords = ["error-handling", "loss", "ternary", "imperfect", "type-system"]
+keywords = ["error-handling", "partial", "ternary", "pbta", "eh"]
 categories = ["rust-patterns", "no-std"]
 readme = "README.md"
 
