@@ -19,6 +19,41 @@
 //! carries its own loss type: [`ConvergenceLoss`] for iterative refinement,
 //! [`ApertureLoss`] for partial observation, [`RoutingLoss`] for decision
 //! uncertainty.
+//!
+//! ## The Terni-Functor
+//!
+//! `Imperfect` is a terni-functor — a three-state composition that accumulates
+//! loss through the middle state. The bind operator comes in three flavors:
+//!
+//! - `.eh()` — the shrug. For engineers who get it.
+//! - `.imperfect()` — the word. For engineers who read it.
+//! - `.tri()` — the math. For engineers who know what a terni-functor is.
+//!
+//! ### Pipeline
+//!
+//! ```rust
+//! use imperfect::{Imperfect, ConvergenceLoss};
+//!
+//! let result = Imperfect::<i32, String, ConvergenceLoss>::Success(1)
+//!     .eh(|x| Imperfect::Success(x * 2))
+//!     .eh(|x| Imperfect::Partial(x + 1, ConvergenceLoss::new(3)));
+//!
+//! assert!(result.is_partial());
+//! assert_eq!(result.ok(), Some(3));
+//! ```
+//!
+//! ### Explicit Context
+//!
+//! ```rust
+//! use imperfect::{Imperfect, Eh, ConvergenceLoss};
+//!
+//! let mut eh = Eh::new();
+//! let a = eh.imperfect(Imperfect::<i32, String, ConvergenceLoss>::Success(1)).unwrap();
+//! let b = eh.imperfect(Imperfect::<_, String, _>::Partial(a + 1, ConvergenceLoss::new(5))).unwrap();
+//! let result: Imperfect<i32, String, ConvergenceLoss> = eh.finish(b);
+//!
+//! assert!(result.is_partial());
+//! ```
 
 /// A measure of what didn't survive a transformation.
 ///
