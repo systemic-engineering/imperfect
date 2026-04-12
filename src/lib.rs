@@ -1090,4 +1090,104 @@ mod tests {
             .tri(|x| Imperfect::Success(x + 1));
         assert_eq!(result, Imperfect::Success(2));
     }
+
+    // --- Eh context struct ---
+
+    #[test]
+    fn eh_context_accumulates_loss() {
+        let mut eh = Eh::new();
+        let a: Result<i32, String> =
+            eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Partial(1, ConvergenceLoss(3)));
+        assert_eq!(a, Ok(1));
+        assert_eq!(eh.loss(), Some(&ConvergenceLoss(3)));
+    }
+
+    #[test]
+    fn eh_context_success_no_loss() {
+        let mut eh: Eh<ConvergenceLoss> = Eh::new();
+        let a = eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Success(1));
+        assert_eq!(a, Ok(1));
+        assert_eq!(eh.loss(), None);
+    }
+
+    #[test]
+    fn eh_context_failure_returns_err() {
+        let mut eh: Eh<ConvergenceLoss> = Eh::new();
+        let a: Result<i32, String> =
+            eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Failure("boom".into()));
+        assert_eq!(a, Err("boom".into()));
+    }
+
+    #[test]
+    fn eh_context_combines_losses() {
+        let mut eh = Eh::new();
+        let _ =
+            eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Partial(1, ConvergenceLoss(3)));
+        let _ =
+            eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Partial(2, ConvergenceLoss(7)));
+        assert_eq!(eh.loss(), Some(&ConvergenceLoss(7)));
+    }
+
+    #[test]
+    fn eh_context_finish_success_when_no_loss() {
+        let eh: Eh<ConvergenceLoss> = Eh::new();
+        let result: Imperfect<i32, String, ConvergenceLoss> = eh.finish(42);
+        assert_eq!(result, Imperfect::Success(42));
+    }
+
+    #[test]
+    fn eh_context_finish_partial_when_loss() {
+        let mut eh = Eh::new();
+        let _ =
+            eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Partial(1, ConvergenceLoss(5)));
+        let result: Imperfect<i32, String, ConvergenceLoss> = eh.finish(42);
+        assert!(result.is_partial());
+        assert_eq!(result.clone().ok(), Some(42));
+    }
+
+    #[test]
+    fn eh_context_imperfect_alias() {
+        let mut eh = Eh::new();
+        let a = eh.imperfect(Imperfect::<i32, String, ConvergenceLoss>::Success(1));
+        assert_eq!(a, Ok(1));
+    }
+
+    #[test]
+    fn eh_context_tri_alias() {
+        let mut eh = Eh::new();
+        let a = eh.tri(Imperfect::<i32, String, ConvergenceLoss>::Success(1));
+        assert_eq!(a, Ok(1));
+    }
+
+    fn example_pipeline(input: i32) -> Imperfect<i32, String, ConvergenceLoss> {
+        let mut eh = Eh::new();
+        let a = eh.eh(if input > 0 {
+            Imperfect::Success(input)
+        } else {
+            Imperfect::Failure("negative".into())
+        });
+
+        match a {
+            Ok(val) => eh.finish(val * 2),
+            Err(_) => Imperfect::Failure("negative".into()),
+        }
+    }
+
+    #[test]
+    fn example_pipeline_success() {
+        let result = example_pipeline(5);
+        assert_eq!(result, Imperfect::Success(10));
+    }
+
+    #[test]
+    fn example_pipeline_failure() {
+        let result = example_pipeline(-1);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn eh_context_default() {
+        let eh: Eh<ConvergenceLoss> = Eh::default();
+        assert_eq!(eh.loss(), None);
+    }
 }
