@@ -179,6 +179,70 @@ impl<T, E, L: Loss> Imperfect<T, E, L> {
     }
 }
 
+/// Terni-functor composition context.
+///
+/// Accumulates loss across a sequence of `Imperfect` operations,
+/// converting each to `Result` for use with `?`.
+///
+/// Call `.finish()` to wrap the final value with accumulated loss.
+#[must_use = "call .finish() to collect accumulated loss — dropping Eh discards loss"]
+pub struct Eh<L: Loss> {
+    accumulated: Option<L>,
+}
+
+impl<L: Loss> Eh<L> {
+    /// Create a new composition context with zero accumulated loss.
+    pub fn new() -> Self {
+        Eh { accumulated: None }
+    }
+
+    /// Extract value from Imperfect, accumulating loss.
+    /// Returns `Result<T, E>` for use with `?`.
+    pub fn eh<T, E>(&mut self, imp: Imperfect<T, E, L>) -> Result<T, E> {
+        match imp {
+            Imperfect::Success(t) => Ok(t),
+            Imperfect::Partial(t, loss) => {
+                self.accumulated = Some(match self.accumulated.take() {
+                    Some(existing) => existing.combine(loss),
+                    None => loss,
+                });
+                Ok(t)
+            }
+            Imperfect::Failure(e) => Err(e),
+        }
+    }
+
+    /// Alias for [`eh`](Self::eh).
+    pub fn imperfect<T, E>(&mut self, imp: Imperfect<T, E, L>) -> Result<T, E> {
+        self.eh(imp)
+    }
+
+    /// Alias for [`eh`](Self::eh).
+    pub fn tri<T, E>(&mut self, imp: Imperfect<T, E, L>) -> Result<T, E> {
+        self.eh(imp)
+    }
+
+    /// Wrap a final value with accumulated loss.
+    /// Success if no loss accumulated. Partial if any did.
+    pub fn finish<T, E>(self, value: T) -> Imperfect<T, E, L> {
+        match self.accumulated {
+            Some(loss) => Imperfect::Partial(value, loss),
+            None => Imperfect::Success(value),
+        }
+    }
+
+    /// Inspect accumulated loss without consuming the context.
+    pub fn loss(&self) -> Option<&L> {
+        self.accumulated.as_ref()
+    }
+}
+
+impl<L: Loss> Default for Eh<L> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // --- std interop ---
 
 impl<T, E, L: Loss> From<Result<T, E>> for Imperfect<T, E, L> {
@@ -1096,8 +1160,10 @@ mod tests {
     #[test]
     fn eh_context_accumulates_loss() {
         let mut eh = Eh::new();
-        let a: Result<i32, String> =
-            eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Partial(1, ConvergenceLoss(3)));
+        let a: Result<i32, String> = eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Partial(
+            1,
+            ConvergenceLoss(3),
+        ));
         assert_eq!(a, Ok(1));
         assert_eq!(eh.loss(), Some(&ConvergenceLoss(3)));
     }
@@ -1113,18 +1179,23 @@ mod tests {
     #[test]
     fn eh_context_failure_returns_err() {
         let mut eh: Eh<ConvergenceLoss> = Eh::new();
-        let a: Result<i32, String> =
-            eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Failure("boom".into()));
+        let a: Result<i32, String> = eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Failure(
+            "boom".into(),
+        ));
         assert_eq!(a, Err("boom".into()));
     }
 
     #[test]
     fn eh_context_combines_losses() {
         let mut eh = Eh::new();
-        let _ =
-            eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Partial(1, ConvergenceLoss(3)));
-        let _ =
-            eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Partial(2, ConvergenceLoss(7)));
+        let _ = eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Partial(
+            1,
+            ConvergenceLoss(3),
+        ));
+        let _ = eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Partial(
+            2,
+            ConvergenceLoss(7),
+        ));
         assert_eq!(eh.loss(), Some(&ConvergenceLoss(7)));
     }
 
@@ -1138,8 +1209,10 @@ mod tests {
     #[test]
     fn eh_context_finish_partial_when_loss() {
         let mut eh = Eh::new();
-        let _ =
-            eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Partial(1, ConvergenceLoss(5)));
+        let _ = eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Partial(
+            1,
+            ConvergenceLoss(5),
+        ));
         let result: Imperfect<i32, String, ConvergenceLoss> = eh.finish(42);
         assert!(result.is_partial());
         assert_eq!(result.clone().ok(), Some(42));
@@ -1161,7 +1234,7 @@ mod tests {
 
     fn example_pipeline(input: i32) -> Imperfect<i32, String, ConvergenceLoss> {
         let mut eh = Eh::new();
-        let a = eh.eh(if input > 0 {
+        let a: Result<i32, String> = eh.eh(if input > 0 {
             Imperfect::Success(input)
         } else {
             Imperfect::Failure("negative".into())
