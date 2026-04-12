@@ -4,7 +4,7 @@
   inputs = {
     nixpkgs.url     = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    flakes.url      = "path:/Users/alexwolf/.flakes";
+    flakes.url      = "github:systemic-engineering/flakes";
     flakes.inputs.nixpkgs.follows = "nixpkgs";
     flakes.inputs.flake-utils.follows = "flake-utils";
   };

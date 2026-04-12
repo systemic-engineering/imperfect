@@ -28,14 +28,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1775734157,
-        "narHash": "sha256-/Pe72yY5fS4MbuMxs0Mx/+A7OwfmyeoFrMsna5EjNiA=",
-        "path": "/Users/alexwolf/.flakes",
-        "type": "path"
+        "lastModified": 1776028270,
+        "narHash": "sha256-65Wc0stvOFk4wKUBb8ImgAYa0tGwxhLXANpq02UJN2U=",
+        "owner": "systemic-engineering",
+        "repo": "flakes",
+        "rev": "ad9813749cd217bb8adeee732b15e2a5ed3d4634",
+        "type": "github"
       },
       "original": {
-        "path": "/Users/alexwolf/.flakes",
-        "type": "path"
+        "owner": "systemic-engineering",
+        "repo": "flakes",
+        "type": "github"
       }
     },
     "nixpkgs": {
