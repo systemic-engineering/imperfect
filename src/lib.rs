@@ -1007,4 +1007,60 @@ mod tests {
         assert_eq!(c.loss().runner_up_gap(), 0.3);
         assert_eq!(c.ok(), Some(2));
     }
+
+    // --- eh: terni-functor bind ---
+
+    #[test]
+    fn eh_chains_success() {
+        let result: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Success(1)
+            .eh(|x| Imperfect::Success(x + 1))
+            .eh(|x| Imperfect::Success(x + 1));
+        assert_eq!(result, Imperfect::Success(3));
+    }
+
+    #[test]
+    fn eh_accumulates_loss() {
+        let result = Imperfect::<i32, String, ConvergenceLoss>::Partial(1, ConvergenceLoss(3))
+            .eh(|x| Imperfect::Partial(x + 1, ConvergenceLoss(5)));
+        assert!(result.is_partial());
+        assert_eq!(result.loss(), ConvergenceLoss(5));
+    }
+
+    #[test]
+    fn eh_shortcircuits_on_failure() {
+        let result = Imperfect::<i32, String, ConvergenceLoss>::Failure("boom".into())
+            .eh(|x| Imperfect::Success(x + 1));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn eh_partial_then_success_stays_partial() {
+        let result = Imperfect::<i32, String, ConvergenceLoss>::Partial(1, ConvergenceLoss(3))
+            .eh(|x| Imperfect::Success(x + 1));
+        assert!(result.is_partial());
+        assert_eq!(result.clone().ok(), Some(2));
+        assert_eq!(result.loss(), ConvergenceLoss(3));
+    }
+
+    #[test]
+    fn eh_success_then_partial_becomes_partial() {
+        let result = Imperfect::<i32, String, ConvergenceLoss>::Success(1)
+            .eh(|x| Imperfect::Partial(x + 1, ConvergenceLoss(5)));
+        assert!(result.is_partial());
+        assert_eq!(result.ok(), Some(2));
+    }
+
+    #[test]
+    fn imperfect_alias_works() {
+        let result = Imperfect::<i32, String, ConvergenceLoss>::Success(1)
+            .imperfect(|x| Imperfect::Success(x + 1));
+        assert_eq!(result, Imperfect::Success(2));
+    }
+
+    #[test]
+    fn tri_alias_works() {
+        let result = Imperfect::<i32, String, ConvergenceLoss>::Success(1)
+            .tri(|x| Imperfect::Success(x + 1));
+        assert_eq!(result, Imperfect::Success(2));
+    }
 }
