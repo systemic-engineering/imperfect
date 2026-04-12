@@ -89,6 +89,7 @@ pub trait Loss: Clone + Default {
 ///
 /// Follows `Result` conventions: `is_ok()` means "has a value" (Success or Partial).
 /// The `.ok()` and `.err()` extractor methods follow `Result` naming conventions.
+#[must_use = "this `Imperfect` may carry loss information that should not be silently discarded"]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Imperfect<T, E, L: Loss> {
     /// Perfect result, zero loss.
@@ -196,17 +197,20 @@ impl<T, E, L: Loss> Imperfect<T, E, L> {
 
     /// Propagate accumulated loss from `self` through `next`.
     ///
-    /// Deprecated in favor of [`eh`](Self::eh) / [`imperfect`](Self::imperfect) / [`tri`](Self::tri).
+    /// Deprecated in favor of [`eh`](Self::eh) / [`imp`](Self::imp) / [`tri`](Self::tri).
     /// Kept for backward compatibility.
     ///
     /// - Success + next → next (no loss to propagate)
     /// - Partial(_, loss) + Success(v) → Partial(v, loss)
     /// - Partial(_, loss1) + Partial(v, loss2) → Partial(v, loss1.combine(loss2))
     /// - Partial(_, _) + Failure(e) → Failure(e)
-    /// - Failure + anything → panics (programming error)
-    pub fn compose<T2, E2>(self, next: Imperfect<T2, E2, L>) -> Imperfect<T2, E2, L> {
+    /// - Failure + anything → Failure (short-circuits, `next` is discarded)
+    pub fn compose<T2, E2>(self, next: Imperfect<T2, E2, L>) -> Imperfect<T2, E2, L>
+    where
+        E: Into<E2>,
+    {
         match self {
-            Imperfect::Failure(_) => panic!("compose called on Failure — check is_ok() first"),
+            Imperfect::Failure(e) => Imperfect::Failure(e.into()),
             Imperfect::Success(_) => next,
             Imperfect::Partial(_, loss) => Imperfect::<(), E2, L>::Partial((), loss).eh(|_| next),
         }
@@ -500,7 +504,7 @@ impl Loss for RoutingLoss {
     }
 
     fn is_zero(&self) -> bool {
-        self.entropy == 0.0
+        self.entropy == 0.0 && self.runner_up_gap == 1.0
     }
 
     fn combine(self, other: Self) -> Self {
@@ -795,11 +799,12 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "compose called on Failure")]
-    fn compose_err_panics() {
+    fn compose_err_shortcircuits() {
         let a: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Failure("fail".into());
         let b: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Success(2);
-        let _ = a.compose(b);
+        let c = a.compose(b);
+        assert!(c.is_err());
+        assert_eq!(c.err(), Some("fail".into()));
     }
 
     // --- std interop ---

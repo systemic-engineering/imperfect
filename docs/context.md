@@ -1,10 +1,12 @@
 # Context
 
-The `Eh` struct is a composition context that accumulates loss across a sequence of `Imperfect` operations, converting each to `Result` so you can use `?`.
+The `Eh` struct is a composition context that accumulates loss across a sequence of `Imperfect` operations, converting each to `Result`.
 
 ## Why
 
 The `.eh()` pipeline is clean when every step returns `Imperfect`. But sometimes you need to interleave `Imperfect` and `Result` operations in the same function, or you need early return on failure. `Eh` bridges the two worlds.
+
+**Note:** `Imperfect` does not implement the `Try` trait (it's nightly-only), so you can't use `?` directly in functions returning `Imperfect`. Use `match` on the `Result` from `eh.eh()` and return `Imperfect::Failure` on `Err`.
 
 ## Basic usage
 
@@ -14,13 +16,17 @@ use imperfect::{Imperfect, Eh, ConvergenceLoss};
 fn process() -> Imperfect<i32, String, ConvergenceLoss> {
     let mut eh = Eh::new();
 
-    let a = eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Success(10))
-        .map_err(|e| e.to_string())?;
+    let a = match eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Success(10)) {
+        Ok(v) => v,
+        Err(e) => return Imperfect::Failure(e),
+    };
 
-    let b = eh.eh(Imperfect::<_, String, _>::Partial(a + 5, ConvergenceLoss::new(3)))
-        .map_err(|e| e.to_string())?;
+    let b = match eh.eh(Imperfect::<_, String, _>::Partial(a + 5, ConvergenceLoss::new(3))) {
+        Ok(v) => v,
+        Err(e) => return Imperfect::Failure(e),
+    };
 
-    // If any step was Failure, ? already returned Err.
+    // If any step was Failure, we already returned.
     // If any step was Partial, loss is accumulated in eh.
     eh.finish(b)
 }
@@ -91,21 +97,28 @@ fn parse_and_validate(input: &str) -> Imperfect<i32, String, ConvergenceLoss> {
     let mut eh = Eh::new();
 
     // Result operation — parse the input
-    let raw: i32 = input.parse()
-        .map_err(|e: ParseIntError| e.to_string())?;
+    let raw: i32 = match input.parse::<i32>() {
+        Ok(n) => n,
+        Err(e) => return Imperfect::Failure(e.to_string()),
+    };
 
     // Imperfect operation — validate range
-    let validated = eh.eh(if raw > 100 {
+    let validated = match eh.eh(if raw > 100 {
         Imperfect::Partial(100, ConvergenceLoss::new(1))  // clamped
     } else if raw < 0 {
         Imperfect::<_, String, _>::Failure("negative".into())
     } else {
         Imperfect::Success(raw)
-    })?;
+    }) {
+        Ok(v) => v,
+        Err(e) => return Imperfect::Failure(e),
+    };
 
     // Another Result operation
-    let doubled = validated.checked_mul(2)
-        .ok_or_else(|| "overflow".to_string())?;
+    let doubled = match validated.checked_mul(2) {
+        Some(v) => v,
+        None => return Imperfect::Failure("overflow".to_string()),
+    };
 
     eh.finish(doubled)
 }
@@ -114,7 +127,7 @@ fn parse_and_validate(input: &str) -> Imperfect<i32, String, ConvergenceLoss> {
 # assert_eq!(r.ok(), Some(100));
 ```
 
-The key insight: `Eh.eh()` returns `Result`, so `?` works on it. Regular `Result` operations use `?` directly. Loss accumulates only through `Eh.eh()` calls. Everything else is standard Rust error handling.
+The key insight: `Eh.eh()` returns `Result`, so you can match on it for early return. Loss accumulates only through `Eh.eh()` calls. Everything else is standard Rust error handling. If your function returns `Result` (not `Imperfect`), you can use `?` on `eh.eh()` directly.
 
 ## Example: payment verification
 
@@ -145,8 +158,14 @@ fn verify_currency(c: &str) -> Imperfect<String, String, ConvergenceLoss> {
 fn verify_payment(p: Payment) -> Imperfect<VerifiedPayment, String, ConvergenceLoss> {
     let mut eh = Eh::new();
 
-    let amount = eh.eh(verify_amount(&p))?;
-    let currency = eh.eh(verify_currency(&p.currency))?;
+    let amount = match eh.eh(verify_amount(&p)) {
+        Ok(v) => v,
+        Err(e) => return Imperfect::Failure(e),
+    };
+    let currency = match eh.eh(verify_currency(&p.currency)) {
+        Ok(v) => v,
+        Err(e) => return Imperfect::Failure(e),
+    };
 
     let risk_score = match eh.loss() {
         Some(loss) => 0.5 + (loss.steps() as f64 * 0.1),  // higher loss = higher risk

@@ -48,7 +48,7 @@ assert_eq!(result.ok(), Some(3));
 assert!(result.is_partial());
 ```
 
-For explicit context with `?` propagation:
+For explicit context with loss accumulation:
 
 ```rust
 use imperfect::{Imperfect, Eh, ConvergenceLoss};
