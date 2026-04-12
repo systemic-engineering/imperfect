@@ -17,7 +17,7 @@ use terni::{Imperfect, ConvergenceLoss};
 
 let perfect: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Success(42);
 let lossy = Imperfect::Partial(42, ConvergenceLoss::new(3));
-let failed: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Failure("gone".into());
+let failed: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Failure("gone".into(), ConvergenceLoss::new(0));
 
 assert!(perfect.is_ok());
 assert!(lossy.is_partial());

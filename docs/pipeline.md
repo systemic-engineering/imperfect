@@ -55,24 +55,26 @@ assert!(result.is_partial());
 assert_eq!(result.loss().steps(), 5);  // max(3, 5) for ConvergenceLoss
 ```
 
-### Anything x Failure = Failure
+### Anything x Failure = Failure (loss carried)
 
-Failure short-circuits. If the input is Failure, `f` is never called. If `f` returns Failure, prior loss is discarded — the value is gone.
+Failure short-circuits. If the input is Failure, `f` is never called. If `f` returns Failure, prior loss is combined with the failure's loss — the value is gone, but the cost of getting here is measured.
 
 ```rust
 use terni::{Imperfect, ConvergenceLoss};
 
-// Failure input: f is never called
-let result = Imperfect::<i32, String, ConvergenceLoss>::Failure("gone".into())
+// Failure input: f is never called, loss preserved
+let result = Imperfect::<i32, String, ConvergenceLoss>::Failure("gone".into(), ConvergenceLoss::new(0))
     .eh(|x| Imperfect::Success(x + 1));
 
 assert!(result.is_err());
+assert!(result.loss().is_zero());
 
-// Partial then failure: loss discarded, only error survives
+// Partial then failure: losses combine
 let result = Imperfect::<i32, String, ConvergenceLoss>::Partial(1, ConvergenceLoss::new(3))
-    .eh(|_| Imperfect::Failure("broke".into()));
+    .eh(|_| Imperfect::<i32, String, ConvergenceLoss>::Failure("broke".into(), ConvergenceLoss::new(5)));
 
 assert!(result.is_err());
+assert_eq!(result.loss().steps(), 5);  // max(3, 5) for ConvergenceLoss
 ```
 
 ## Chaining

@@ -16,7 +16,7 @@ pub trait Loss: Clone + Default {
 `Loss` is a monoid with an absorbing element:
 
 - **`zero()`** — the identity. No loss occurred. `combine(zero(), x) == x`.
-- **`total()`** — the annihilator. The transformation destroyed everything. `Failure` reports this.
+- **`total()`** — the annihilator. The transformation destroyed everything. Callers can check `is_err()` to distinguish failure from partial.
 - **`is_zero()`** — test whether this loss is lossless.
 - **`combine()`** — accumulate two losses. Must be associative: `a.combine(b).combine(c) == a.combine(b.combine(c))`.
 

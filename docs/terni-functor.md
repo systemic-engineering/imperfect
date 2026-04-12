@@ -8,7 +8,7 @@ A terni-functor is a three-state composition that carries a monoidal annotation 
 
 - **Success(T)** — pure value, zero annotation
 - **Partial(T, L)** — value with annotation
-- **Failure(E)** — no value
+- **Failure(E, L)** — no value, but the cost of getting here is measured
 
 The bind operator (`.eh()`) composes these while accumulating the annotation via the `Loss` monoid.
 
@@ -24,9 +24,9 @@ Haskell's `Writer w a` carries a monoidal log alongside a value. `Partial(T, L)`
 
 - `Success` carries no log (it's structurally absent, not zero)
 - `Partial` carries the log
-- `Failure` has no value to log against
+- `Failure` has no value, but carries the accumulated loss from before the failure
 
-This is not `Writer`. `Writer` is `(a, w)`. `Imperfect` is `Success a | Partial a w | Failure e`. The failure path and the "genuinely zero loss" path both exist as distinct states, not as special values of the monoid.
+This is not `Writer`. `Writer` is `(a, w)`. `Imperfect` is `Success a | Partial a w | Failure e w`. The failure path and the "genuinely zero loss" path both exist as distinct states, not as special values of the monoid. Failure carries loss to preserve the cost of computation that preceded it.
 
 ## The monad laws
 

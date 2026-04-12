@@ -8,7 +8,7 @@
 //! - **Success** — the transformation preserved everything. Zero loss.
 //! - **Partial** — a value came through, but something was lost getting here.
 //!   The loss is measured and carried forward.
-//! - **Failure** — no value survived.
+//! - **Failure** — no value survived, but the cost of getting here is measured.
 //!
 //! The middle state is the point. Most real transformations are not perfect
 //! and not failed. They are partial: a value exists, and it cost something.
@@ -79,7 +79,7 @@ pub trait Loss: Clone + Default {
 /// Three states:
 /// - `Success(T)` — perfect result, zero loss.
 /// - `Partial(T, L)` — value present, some information lost getting here.
-/// - `Failure(E)` — failure, no value.
+/// - `Failure(E, L)` — failure, no value, but the cost of getting here is measured.
 ///
 /// The design descends from PbtA (Powered by the Apocalypse) tabletop games,
 /// which use three outcome tiers: 10+ is full success, 7-9 is success with
@@ -96,8 +96,8 @@ pub enum Imperfect<T, E, L: Loss> {
     Success(T),
     /// Value present, some information lost getting here.
     Partial(T, L),
-    /// Failure, no value.
-    Failure(E),
+    /// Failure, no value, but the cost of getting here is measured.
+    Failure(E, L),
 }
 
 impl<T, E, L: Loss> Imperfect<T, E, L> {
@@ -113,31 +113,47 @@ impl<T, E, L: Loss> Imperfect<T, E, L> {
 
     /// Returns `true` if this is a Failure.
     pub fn is_err(&self) -> bool {
-        matches!(self, Imperfect::Failure(_))
+        matches!(self, Imperfect::Failure(_, _))
     }
 
     /// Extract the value, discarding loss information. Returns `None` on Failure.
     pub fn ok(self) -> Option<T> {
         match self {
             Imperfect::Success(v) | Imperfect::Partial(v, _) => Some(v),
-            Imperfect::Failure(_) => None,
+            Imperfect::Failure(_, _) => None,
         }
     }
 
     /// Extract the error. Returns `None` on Success or Partial.
     pub fn err(self) -> Option<E> {
         match self {
-            Imperfect::Failure(e) => Some(e),
+            Imperfect::Failure(e, _) => Some(e),
             _ => None,
         }
     }
 
-    /// The loss incurred. Zero for Success, total for Failure, carried for Partial.
+    /// Extract the error and accumulated loss. Returns `None` on Success or Partial.
+    ///
+    /// Unlike `.err()` which drops the loss, this returns both the error and the
+    /// loss that accumulated before the failure. This is information you can't
+    /// recover any other way — `L::total()` can always be reconstructed from the
+    /// type, but the pre-failure loss cannot.
+    pub fn err_with_loss(self) -> Option<(E, L)> {
+        match self {
+            Imperfect::Failure(e, l) => Some((e, l)),
+            _ => None,
+        }
+    }
+
+    /// The loss incurred. Zero for Success, carried for Partial and Failure.
+    ///
+    /// Failure carries the accumulated loss from before the failure — the cost
+    /// of getting here. If you need `L::total()`, check `is_err()`.
     pub fn loss(&self) -> L {
         match self {
             Imperfect::Success(_) => L::zero(),
             Imperfect::Partial(_, l) => l.clone(),
-            Imperfect::Failure(_) => L::total(),
+            Imperfect::Failure(_, l) => l.clone(),
         }
     }
 
@@ -146,7 +162,7 @@ impl<T, E, L: Loss> Imperfect<T, E, L> {
         match self {
             Imperfect::Success(t) => Imperfect::Success(t),
             Imperfect::Partial(t, l) => Imperfect::Partial(t, l.clone()),
-            Imperfect::Failure(e) => Imperfect::Failure(e),
+            Imperfect::Failure(e, l) => Imperfect::Failure(e, l.clone()),
         }
     }
 
@@ -155,7 +171,7 @@ impl<T, E, L: Loss> Imperfect<T, E, L> {
         match self {
             Imperfect::Success(t) => Imperfect::Success(f(t)),
             Imperfect::Partial(t, l) => Imperfect::Partial(f(t), l),
-            Imperfect::Failure(e) => Imperfect::Failure(e),
+            Imperfect::Failure(e, l) => Imperfect::Failure(e, l),
         }
     }
 
@@ -164,7 +180,7 @@ impl<T, E, L: Loss> Imperfect<T, E, L> {
         match self {
             Imperfect::Success(t) => Imperfect::Success(t),
             Imperfect::Partial(t, l) => Imperfect::Partial(t, l),
-            Imperfect::Failure(e) => Imperfect::Failure(f(e)),
+            Imperfect::Failure(e, l) => Imperfect::Failure(f(e), l),
         }
     }
 
@@ -179,9 +195,9 @@ impl<T, E, L: Loss> Imperfect<T, E, L> {
             Imperfect::Partial(t, loss) => match f(t) {
                 Imperfect::Success(u) => Imperfect::Partial(u, loss),
                 Imperfect::Partial(u, loss2) => Imperfect::Partial(u, loss.combine(loss2)),
-                Imperfect::Failure(e) => Imperfect::Failure(e),
+                Imperfect::Failure(e, loss2) => Imperfect::Failure(e, loss.combine(loss2)),
             },
-            Imperfect::Failure(e) => Imperfect::Failure(e),
+            Imperfect::Failure(e, loss) => Imperfect::Failure(e, loss),
         }
     }
 
@@ -203,16 +219,20 @@ impl<T, E, L: Loss> Imperfect<T, E, L> {
     /// - Success + next → next (no loss to propagate)
     /// - Partial(_, loss) + Success(v) → Partial(v, loss)
     /// - Partial(_, loss1) + Partial(v, loss2) → Partial(v, loss1.combine(loss2))
-    /// - Partial(_, _) + Failure(e) → Failure(e)
-    /// - Failure + anything → Failure (short-circuits, `next` is discarded)
+    /// - Partial(_, loss1) + Failure(e, loss2) → Failure(e, loss1.combine(loss2))
+    /// - Failure(e, loss) + anything → Failure(e, loss) (short-circuits, `next` is discarded)
     pub fn compose<T2, E2>(self, next: Imperfect<T2, E2, L>) -> Imperfect<T2, E2, L>
     where
         E: Into<E2>,
     {
         match self {
-            Imperfect::Failure(e) => Imperfect::Failure(e.into()),
+            Imperfect::Failure(e, loss) => Imperfect::Failure(e.into(), loss),
             Imperfect::Success(_) => next,
-            Imperfect::Partial(_, loss) => Imperfect::<(), E2, L>::Partial((), loss).eh(|_| next),
+            Imperfect::Partial(_, loss) => match next {
+                Imperfect::Success(u) => Imperfect::Partial(u, loss),
+                Imperfect::Partial(u, loss2) => Imperfect::Partial(u, loss.combine(loss2)),
+                Imperfect::Failure(e, loss2) => Imperfect::Failure(e, loss.combine(loss2)),
+            },
         }
     }
 }
@@ -246,7 +266,13 @@ impl<L: Loss> Eh<L> {
                 });
                 Ok(t)
             }
-            Imperfect::Failure(e) => Err(e),
+            Imperfect::Failure(e, loss) => {
+                self.accumulated = Some(match self.accumulated.take() {
+                    Some(existing) => existing.combine(loss),
+                    None => loss,
+                });
+                Err(e)
+            }
         }
     }
 
@@ -287,7 +313,7 @@ impl<T, E, L: Loss> From<Result<T, E>> for Imperfect<T, E, L> {
     fn from(r: Result<T, E>) -> Self {
         match r {
             Ok(v) => Imperfect::Success(v),
-            Err(e) => Imperfect::Failure(e),
+            Err(e) => Imperfect::Failure(e, L::zero()),
         }
     }
 }
@@ -296,7 +322,7 @@ impl<T, E, L: Loss> From<Imperfect<T, E, L>> for Result<T, E> {
     fn from(i: Imperfect<T, E, L>) -> Self {
         match i {
             Imperfect::Success(v) | Imperfect::Partial(v, _) => Ok(v),
-            Imperfect::Failure(e) => Err(e),
+            Imperfect::Failure(e, _) => Err(e),
         }
     }
 }
@@ -307,7 +333,7 @@ impl<T, L: Loss> From<Option<T>> for Imperfect<T, (), L> {
     fn from(o: Option<T>) -> Self {
         match o {
             Some(v) => Imperfect::Success(v),
-            None => Imperfect::Failure(()),
+            None => Imperfect::Failure((), L::zero()),
         }
     }
 }
@@ -562,7 +588,8 @@ mod tests {
 
     #[test]
     fn err_is_err() {
-        let i: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Failure("oops".into());
+        let i: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::Failure("oops".into(), ConvergenceLoss(0));
         assert!(!i.is_ok());
         assert!(!i.is_partial());
         assert!(i.is_err());
@@ -583,13 +610,15 @@ mod tests {
 
     #[test]
     fn err_ok_returns_none() {
-        let i: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Failure("oops".into());
+        let i: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::Failure("oops".into(), ConvergenceLoss(0));
         assert_eq!(i.ok(), None);
     }
 
     #[test]
     fn err_returns_error() {
-        let i: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Failure("oops".into());
+        let i: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::Failure("oops".into(), ConvergenceLoss(0));
         assert_eq!(i.err(), Some("oops".into()));
     }
 
@@ -613,9 +642,10 @@ mod tests {
     }
 
     #[test]
-    fn loss_err_is_total() {
-        let i: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Failure("oops".into());
-        assert_eq!(i.loss().steps(), usize::MAX);
+    fn loss_err_carries_loss() {
+        let i: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::Failure("oops".into(), ConvergenceLoss(7));
+        assert_eq!(i.loss().steps(), 7);
     }
 
     #[test]
@@ -636,7 +666,8 @@ mod tests {
 
     #[test]
     fn as_ref_err() {
-        let i: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Failure("oops".into());
+        let i: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::Failure("oops".into(), ConvergenceLoss(0));
         let r = i.as_ref();
         assert_eq!(r.err(), Some(&"oops".to_string()));
     }
@@ -659,14 +690,16 @@ mod tests {
 
     #[test]
     fn map_err_is_noop() {
-        let i: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Failure("oops".into());
+        let i: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::Failure("oops".into(), ConvergenceLoss(0));
         let m = i.map(double_u32);
         assert!(m.is_err());
     }
 
     #[test]
     fn map_err_transforms_error() {
-        let i: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Failure("oops".into());
+        let i: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::Failure("oops".into(), ConvergenceLoss(0));
         let m = i.map_err(|e| e.len());
         assert_eq!(m.err(), Some(4));
     }
@@ -724,15 +757,18 @@ mod tests {
 
     #[test]
     fn partial_eq_failure_equal() {
-        let a: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Failure("err".into());
-        let b: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Failure("err".into());
+        let a: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::Failure("err".into(), ConvergenceLoss(0));
+        let b: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::Failure("err".into(), ConvergenceLoss(0));
         assert_eq!(a, b);
     }
 
     #[test]
     fn partial_eq_different_variants_not_equal() {
         let a: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Success(1);
-        let b: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Failure("err".into());
+        let b: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::Failure("err".into(), ConvergenceLoss(0));
         assert_ne!(a, b);
     }
 
@@ -760,7 +796,8 @@ mod tests {
     #[test]
     fn compose_ok_err() {
         let a: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Success(1);
-        let b: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Failure("fail".into());
+        let b: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::Failure("fail".into(), ConvergenceLoss(0));
         let c = a.compose(b);
         assert!(c.is_err());
     }
@@ -793,14 +830,16 @@ mod tests {
     fn compose_partial_err() {
         let a: Imperfect<u32, String, ConvergenceLoss> =
             Imperfect::Partial(1, ConvergenceLoss::new(3));
-        let b: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Failure("fail".into());
+        let b: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::Failure("fail".into(), ConvergenceLoss(0));
         let c = a.compose(b);
         assert!(c.is_err());
     }
 
     #[test]
     fn compose_err_shortcircuits() {
-        let a: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Failure("fail".into());
+        let a: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::Failure("fail".into(), ConvergenceLoss(0));
         let b: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Success(2);
         let c = a.compose(b);
         assert!(c.is_err());
@@ -840,7 +879,8 @@ mod tests {
 
     #[test]
     fn into_result_err() {
-        let i: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Failure("oops".into());
+        let i: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::Failure("oops".into(), ConvergenceLoss(0));
         let r: Result<u32, String> = i.into();
         assert_eq!(r, Err("oops".into()));
     }
@@ -1143,30 +1183,43 @@ mod tests {
     #[test]
     fn eh_chains_success() {
         let result: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Success(1)
-            .eh(|x| Imperfect::Success(x + 1))
-            .eh(|x| Imperfect::Success(x + 1));
+            .eh(convergence_add_one)
+            .eh(convergence_add_one);
         assert_eq!(result, Imperfect::Success(3));
     }
 
     #[test]
     fn eh_accumulates_loss() {
         let result = Imperfect::<i32, String, ConvergenceLoss>::Partial(1, ConvergenceLoss(3))
-            .eh(|x| Imperfect::Partial(x + 1, ConvergenceLoss(5)));
+            .eh(convergence_add_one_partial);
         assert!(result.is_partial());
         assert_eq!(result.loss(), ConvergenceLoss(5));
     }
 
+    fn convergence_add_one(x: i32) -> Imperfect<i32, String, ConvergenceLoss> {
+        Imperfect::Success(x + 1)
+    }
+
+    fn convergence_add_one_partial(x: i32) -> Imperfect<i32, String, ConvergenceLoss> {
+        Imperfect::Partial(x + 1, ConvergenceLoss(5))
+    }
+
+    fn convergence_fail(_: i32) -> Imperfect<i32, String, ConvergenceLoss> {
+        Imperfect::Failure("broke".into(), ConvergenceLoss(0))
+    }
+
     #[test]
     fn eh_shortcircuits_on_failure() {
-        let result = Imperfect::<i32, String, ConvergenceLoss>::Failure("boom".into())
-            .eh(|x| Imperfect::Success(x + 1));
+        let result =
+            Imperfect::<i32, String, ConvergenceLoss>::Failure("boom".into(), ConvergenceLoss(0))
+                .eh(convergence_add_one);
         assert!(result.is_err());
     }
 
     #[test]
     fn eh_partial_then_success_stays_partial() {
         let result = Imperfect::<i32, String, ConvergenceLoss>::Partial(1, ConvergenceLoss(3))
-            .eh(|x| Imperfect::Success(x + 1));
+            .eh(convergence_add_one);
         assert!(result.is_partial());
         assert_eq!(result.clone().ok(), Some(2));
         assert_eq!(result.loss(), ConvergenceLoss(3));
@@ -1174,23 +1227,21 @@ mod tests {
 
     #[test]
     fn eh_success_then_partial_becomes_partial() {
-        let result = Imperfect::<i32, String, ConvergenceLoss>::Success(1)
-            .eh(|x| Imperfect::Partial(x + 1, ConvergenceLoss(5)));
+        let result =
+            Imperfect::<i32, String, ConvergenceLoss>::Success(1).eh(convergence_add_one_partial);
         assert!(result.is_partial());
         assert_eq!(result.ok(), Some(2));
     }
 
     #[test]
     fn imp_alias_works() {
-        let result = Imperfect::<i32, String, ConvergenceLoss>::Success(1)
-            .imp(|x| Imperfect::Success(x + 1));
+        let result = Imperfect::<i32, String, ConvergenceLoss>::Success(1).imp(convergence_add_one);
         assert_eq!(result, Imperfect::Success(2));
     }
 
     #[test]
     fn tri_alias_works() {
-        let result = Imperfect::<i32, String, ConvergenceLoss>::Success(1)
-            .tri(|x| Imperfect::Success(x + 1));
+        let result = Imperfect::<i32, String, ConvergenceLoss>::Success(1).tri(convergence_add_one);
         assert_eq!(result, Imperfect::Success(2));
     }
 
@@ -1220,6 +1271,7 @@ mod tests {
         let mut eh: Eh<ConvergenceLoss> = Eh::new();
         let a: Result<i32, String> = eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Failure(
             "boom".into(),
+            ConvergenceLoss(0),
         ));
         assert_eq!(a, Err("boom".into()));
     }
@@ -1276,12 +1328,12 @@ mod tests {
         let a: Result<i32, String> = eh.eh(if input > 0 {
             Imperfect::Success(input)
         } else {
-            Imperfect::Failure("negative".into())
+            Imperfect::Failure("negative".into(), ConvergenceLoss(0))
         });
 
         match a {
             Ok(val) => eh.finish(val * 2),
-            Err(_) => Imperfect::Failure("negative".into()),
+            Err(_) => Imperfect::Failure("negative".into(), ConvergenceLoss(0)),
         }
     }
 
@@ -1301,5 +1353,177 @@ mod tests {
     fn eh_context_default() {
         let eh: Eh<ConvergenceLoss> = Eh::default();
         assert_eq!(eh.loss(), None);
+    }
+
+    // --- Failure(E, L): failure carries accumulated loss ---
+
+    #[test]
+    fn failure_carries_loss_through_eh_chain() {
+        // Partial(3) -> Partial(5) -> Failure: both partial losses should combine into Failure
+        let result = Imperfect::<i32, String, ConvergenceLoss>::Partial(1, ConvergenceLoss(3))
+            .eh(|x| Imperfect::Partial(x + 1, ConvergenceLoss(5)))
+            .eh(convergence_fail);
+        assert!(result.is_err());
+        // Failure should carry max(3, 5) = 5 from the partials, combined with the failure's own zero
+        assert_eq!(result.loss().steps(), 5);
+    }
+
+    #[test]
+    fn partial_then_failure_combines_losses() {
+        let result =
+            Imperfect::<i32, String, ConvergenceLoss>::Partial(1, ConvergenceLoss(3)).eh(|_| {
+                Imperfect::<i32, String, ConvergenceLoss>::Failure(
+                    "broke".into(),
+                    ConvergenceLoss(7),
+                )
+            });
+        assert!(result.is_err());
+        // max(3, 7) = 7
+        assert_eq!(result.loss().steps(), 7);
+    }
+
+    #[test]
+    fn failure_loss_returns_carried_not_total() {
+        let i: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::Failure("oops".into(), ConvergenceLoss(3));
+        // Should return 3, not usize::MAX
+        assert_eq!(i.loss().steps(), 3);
+    }
+
+    #[test]
+    fn failure_with_zero_loss() {
+        let i: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::Failure("oops".into(), ConvergenceLoss::zero());
+        assert!(i.loss().is_zero());
+    }
+
+    #[test]
+    fn err_with_loss_returns_both() {
+        let i: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::Failure("oops".into(), ConvergenceLoss(5));
+        let (e, l) = i.err_with_loss().unwrap();
+        assert_eq!(e, "oops");
+        assert_eq!(l.steps(), 5);
+    }
+
+    #[test]
+    fn err_with_loss_none_on_success() {
+        let i: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Success(42);
+        assert!(i.err_with_loss().is_none());
+    }
+
+    #[test]
+    fn err_with_loss_none_on_partial() {
+        let i: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Partial(42, ConvergenceLoss(3));
+        assert!(i.err_with_loss().is_none());
+    }
+
+    #[test]
+    fn eh_context_failure_accumulates_loss() {
+        let mut eh = Eh::new();
+        let _ = eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Partial(
+            1,
+            ConvergenceLoss(3),
+        ));
+        let _ = eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Failure(
+            "boom".into(),
+            ConvergenceLoss(5),
+        ));
+        // Failure's loss should accumulate into context: max(3, 5) = 5
+        assert_eq!(eh.loss(), Some(&ConvergenceLoss(5)));
+    }
+
+    #[test]
+    fn eh_context_failure_alone_carries_loss() {
+        let mut eh: Eh<ConvergenceLoss> = Eh::new();
+        let _ = eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Failure(
+            "boom".into(),
+            ConvergenceLoss(7),
+        ));
+        assert_eq!(eh.loss(), Some(&ConvergenceLoss(7)));
+    }
+
+    #[test]
+    fn compose_partial_failure_combines_loss() {
+        let a: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::Partial(1, ConvergenceLoss::new(3));
+        let b: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::Failure("fail".into(), ConvergenceLoss::new(5));
+        let c = a.compose(b);
+        assert!(c.is_err());
+        // max(3, 5) = 5
+        assert_eq!(c.loss().steps(), 5);
+    }
+
+    #[test]
+    fn compose_failure_carries_loss_through() {
+        let a: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::Failure("fail".into(), ConvergenceLoss::new(4));
+        let b: Imperfect<u32, String, ConvergenceLoss> = Imperfect::Success(2);
+        let c = a.compose(b);
+        assert!(c.is_err());
+        assert_eq!(c.loss().steps(), 4);
+    }
+
+    #[test]
+    fn success_then_failure_carries_failure_loss() {
+        let result = Imperfect::<i32, String, ConvergenceLoss>::Success(1).eh(|_| {
+            Imperfect::<i32, String, ConvergenceLoss>::Failure("broke".into(), ConvergenceLoss(9))
+        });
+        assert!(result.is_err());
+        assert_eq!(result.loss().steps(), 9);
+    }
+
+    #[test]
+    fn failure_propagates_through_multiple_eh() {
+        let result =
+            Imperfect::<i32, String, ConvergenceLoss>::Failure("early".into(), ConvergenceLoss(3))
+                .eh(convergence_add_one)
+                .eh(convergence_add_one);
+        assert!(result.is_err());
+        assert_eq!(result.loss().steps(), 3);
+        assert_eq!(result.err(), Some("early".into()));
+    }
+
+    #[test]
+    fn map_err_preserves_failure_loss() {
+        let i: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::Failure("oops".into(), ConvergenceLoss(4));
+        let m = i.map_err(|e| e.len());
+        assert_eq!(m.loss().steps(), 4);
+        assert_eq!(m.err(), Some(4));
+    }
+
+    #[test]
+    fn as_ref_failure_preserves_loss() {
+        let i: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::Failure("oops".into(), ConvergenceLoss(6));
+        let r = i.as_ref();
+        assert!(r.is_err());
+        assert_eq!(r.loss().steps(), 6);
+    }
+
+    #[test]
+    fn from_result_err_has_zero_loss() {
+        let r: Result<u32, String> = Err("oops".into());
+        let i: Imperfect<u32, String, ConvergenceLoss> = r.into();
+        assert!(i.is_err());
+        assert!(i.loss().is_zero());
+    }
+
+    #[test]
+    fn into_result_failure_drops_loss() {
+        let i: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::Failure("oops".into(), ConvergenceLoss(5));
+        let r: Result<u32, String> = i.into();
+        assert_eq!(r, Err("oops".into()));
+    }
+
+    #[test]
+    fn from_option_none_has_zero_loss() {
+        let o: Option<u32> = None;
+        let i: Imperfect<u32, (), ConvergenceLoss> = o.into();
+        assert!(i.is_err());
+        assert!(i.loss().is_zero());
     }
 }

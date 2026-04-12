@@ -38,7 +38,7 @@ use terni::{Imperfect, ConvergenceLoss};
 fn process(input: &str) -> Imperfect<i32, String, ConvergenceLoss> {
     let n: i32 = match input.parse() {
         Ok(n) => n,
-        Err(e) => return Imperfect::Failure(e.to_string()),
+        Err(e) => return Imperfect::Failure(e.to_string(), ConvergenceLoss::zero()),
     };
     if n > 100 {
         Imperfect::Partial(100, ConvergenceLoss::new(1))  // clamped — loss recorded

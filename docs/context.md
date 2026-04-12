@@ -18,12 +18,12 @@ fn process() -> Imperfect<i32, String, ConvergenceLoss> {
 
     let a = match eh.eh(Imperfect::<i32, String, ConvergenceLoss>::Success(10)) {
         Ok(v) => v,
-        Err(e) => return Imperfect::Failure(e),
+        Err(e) => return Imperfect::Failure(e, ConvergenceLoss::zero()),
     };
 
     let b = match eh.eh(Imperfect::<_, String, _>::Partial(a + 5, ConvergenceLoss::new(3))) {
         Ok(v) => v,
-        Err(e) => return Imperfect::Failure(e),
+        Err(e) => return Imperfect::Failure(e, ConvergenceLoss::zero()),
     };
 
     // If any step was Failure, we already returned.
@@ -52,7 +52,7 @@ assert!(eh.loss().is_none());
 
 Extracts the value from an `Imperfect`, accumulating any loss. Returns `Ok(T)` for Success and Partial, `Err(E)` for Failure.
 
-This is where loss gets absorbed into the context. Success adds nothing. Partial adds its loss (via `combine` if loss already exists). Failure returns `Err` immediately.
+This is where loss gets absorbed into the context. Success adds nothing. Partial adds its loss (via `combine` if loss already exists). Failure accumulates its carried loss into the context, then returns `Err`.
 
 ### `.imp()` and `.tri()`
 
@@ -99,25 +99,25 @@ fn parse_and_validate(input: &str) -> Imperfect<i32, String, ConvergenceLoss> {
     // Result operation — parse the input
     let raw: i32 = match input.parse::<i32>() {
         Ok(n) => n,
-        Err(e) => return Imperfect::Failure(e.to_string()),
+        Err(e) => return Imperfect::Failure(e.to_string(), ConvergenceLoss::zero()),
     };
 
     // Imperfect operation — validate range
     let validated = match eh.eh(if raw > 100 {
         Imperfect::Partial(100, ConvergenceLoss::new(1))  // clamped
     } else if raw < 0 {
-        Imperfect::<_, String, _>::Failure("negative".into())
+        Imperfect::<_, String, _>::Failure("negative".into(), ConvergenceLoss::zero())
     } else {
         Imperfect::Success(raw)
     }) {
         Ok(v) => v,
-        Err(e) => return Imperfect::Failure(e),
+        Err(e) => return Imperfect::Failure(e, ConvergenceLoss::zero()),
     };
 
     // Another Result operation
     let doubled = match validated.checked_mul(2) {
         Some(v) => v,
-        None => return Imperfect::Failure("overflow".to_string()),
+        None => return Imperfect::Failure("overflow".to_string(), ConvergenceLoss::zero()),
     };
 
     eh.finish(doubled)
@@ -139,7 +139,7 @@ struct VerifiedPayment { amount: u64, currency: String, risk_score: f64 }
 
 fn verify_amount(p: &Payment) -> Imperfect<u64, String, ConvergenceLoss> {
     if p.amount == 0 {
-        Imperfect::Failure("zero amount".into())
+        Imperfect::Failure("zero amount".into(), ConvergenceLoss::zero())
     } else if p.amount > 10_000 {
         Imperfect::Partial(p.amount, ConvergenceLoss::new(2))  // needs review
     } else {
@@ -151,7 +151,7 @@ fn verify_currency(c: &str) -> Imperfect<String, String, ConvergenceLoss> {
     match c {
         "USD" | "EUR" => Imperfect::Success(c.to_string()),
         "GBP" => Imperfect::Partial(c.to_string(), ConvergenceLoss::new(1)),  // supported but slower
-        _ => Imperfect::Failure(format!("unsupported currency: {}", c)),
+        _ => Imperfect::Failure(format!("unsupported currency: {}", c), ConvergenceLoss::zero()),
     }
 }
 
@@ -160,11 +160,11 @@ fn verify_payment(p: Payment) -> Imperfect<VerifiedPayment, String, ConvergenceL
 
     let amount = match eh.eh(verify_amount(&p)) {
         Ok(v) => v,
-        Err(e) => return Imperfect::Failure(e),
+        Err(e) => return Imperfect::Failure(e, ConvergenceLoss::zero()),
     };
     let currency = match eh.eh(verify_currency(&p.currency)) {
         Ok(v) => v,
-        Err(e) => return Imperfect::Failure(e),
+        Err(e) => return Imperfect::Failure(e, ConvergenceLoss::zero()),
     };
 
     let risk_score = match eh.loss() {
