@@ -100,6 +100,20 @@ pub enum Imperfect<T, E, L: Loss> {
     Failure(E, L),
 }
 
+/// Propagate accumulated loss through the next step's result.
+///
+/// Extracted as a standalone function so that LLVM creates a single
+/// monomorphization per `(T, E, L)` triple, rather than one per closure.
+/// This avoids phantom "missed lines" in coverage from closure-specific
+/// monomorphizations that never exercise certain match arms.
+fn propagate_loss<T, E, L: Loss>(loss: L, next: Imperfect<T, E, L>) -> Imperfect<T, E, L> {
+    match next {
+        Imperfect::Success(u) => Imperfect::Partial(u, loss),
+        Imperfect::Partial(u, loss2) => Imperfect::Partial(u, loss.combine(loss2)),
+        Imperfect::Failure(e, loss2) => Imperfect::Failure(e, loss.combine(loss2)),
+    }
+}
+
 impl<T, E, L: Loss> Imperfect<T, E, L> {
     /// Returns `true` if the result has a value (Success or Partial).
     pub fn is_ok(&self) -> bool {
@@ -192,11 +206,7 @@ impl<T, E, L: Loss> Imperfect<T, E, L> {
     pub fn eh<U>(self, f: impl FnOnce(T) -> Imperfect<U, E, L>) -> Imperfect<U, E, L> {
         match self {
             Imperfect::Success(t) => f(t),
-            Imperfect::Partial(t, loss) => match f(t) {
-                Imperfect::Success(u) => Imperfect::Partial(u, loss),
-                Imperfect::Partial(u, loss2) => Imperfect::Partial(u, loss.combine(loss2)),
-                Imperfect::Failure(e, loss2) => Imperfect::Failure(e, loss.combine(loss2)),
-            },
+            Imperfect::Partial(t, loss) => propagate_loss(loss, f(t)),
             Imperfect::Failure(e, loss) => Imperfect::Failure(e, loss),
         }
     }
@@ -228,11 +238,7 @@ impl<T, E, L: Loss> Imperfect<T, E, L> {
         match self {
             Imperfect::Failure(e, loss) => Imperfect::Failure(e.into(), loss),
             Imperfect::Success(_) => next,
-            Imperfect::Partial(_, loss) => match next {
-                Imperfect::Success(u) => Imperfect::Partial(u, loss),
-                Imperfect::Partial(u, loss2) => Imperfect::Partial(u, loss.combine(loss2)),
-                Imperfect::Failure(e, loss2) => Imperfect::Failure(e, loss.combine(loss2)),
-            },
+            Imperfect::Partial(_, loss) => propagate_loss(loss, next),
         }
     }
 }
