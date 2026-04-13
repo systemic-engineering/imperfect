@@ -150,28 +150,36 @@ Plain `?` on `Imperfect`. Loss accumulates implicitly. No context variable. No `
 
 The macro rewrites `expr?` to route through an `IntoEh` trait, which handles both `Imperfect` (accumulates loss) and `Result` (passes through). Mix them freely inside an `eh!` block.
 
-Add a `recover` branch to handle failures:
+Add `recover` and `rescue` branches for the full PbtA model:
 
 ```rust
 use terni::{eh, Imperfect, ConvergenceLoss};
 
-fn resilient(input: i32) -> Imperfect<i32, String, ConvergenceLoss> {
+fn full_pbta(input: i32) -> Imperfect<i32, String, ConvergenceLoss> {
     eh! {
         let a = step_one(input)?;
-        let b = step_two(a)?;
-        b + 1
+        step_two(a)
 
-        recover |e| {
-            eprintln!("failed: {}", e);
-            0  // fallback value
+        // 7-9: you got it, it cost something
+        recover |value, loss| {
+            adjust(value, &loss)
+        }
+
+        // 6-: the MC makes a move
+        rescue |error| {
+            fallback(error)
         }
     }
 }
+
+// 10+: clean hit. no handler needed.
 # fn step_one(x: i32) -> Imperfect<i32, String, ConvergenceLoss> { Imperfect::Success(x) }
 # fn step_two(x: i32) -> Imperfect<i32, String, ConvergenceLoss> { Imperfect::Success(x) }
+# fn adjust(v: i32, _l: &ConvergenceLoss) -> i32 { v }
+# fn fallback(_e: String) -> i32 { 0 }
 ```
 
-If any `?` hits `Failure`, the recovery closure runs. The accumulated loss carries through. The result is always `Partial` — the failure happened, but you recovered a value. Without `recover`, failures propagate as before.
+Both branches are optional and independent. `recover` handles Partial (value came through, something was lost — transforms the value, loss stays). `rescue` handles Failure (nothing survived — brings back a value, accumulated loss carries). Without either, behavior is unchanged.
 
 `return` inside `eh!` returns from the block, not the enclosing function. Use `?` for early exit.
 

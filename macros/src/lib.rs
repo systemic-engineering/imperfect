@@ -24,8 +24,17 @@ impl VisitMut for EhRewriter {
     }
 }
 
-/// The recovery branch: `recover |ident| { body }`.
+/// The recover branch: `recover |value, loss| { body }`.
+/// Handles Partial results — the 7-9 move.
 struct RecoverBranch {
+    value_ident: Ident,
+    loss_ident: Ident,
+    body: Block,
+}
+
+/// The rescue branch: `rescue |error| { body }`.
+/// Handles Failure — the 6- move.
+struct RescueBranch {
     error_ident: Ident,
     body: Block,
 }
@@ -34,31 +43,48 @@ struct RecoverBranch {
 struct EhInput {
     body: Vec<Stmt>,
     recover: Option<RecoverBranch>,
+    rescue: Option<RescueBranch>,
 }
 
 impl Parse for EhInput {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        // Collect all tokens, then scan for a top-level `recover` identifier
-        // followed by `|`. We need to split the token stream at that point.
+        // Collect all tokens, then scan for top-level `recover` and `rescue` identifiers
+        // followed by `|`. We need to split the token stream at those points.
         let all_tokens: TokenStream2 = input.parse()?;
         let tokens: Vec<proc_macro2::TokenTree> = all_tokens.into_iter().collect();
 
-        // Find the position of `recover` followed by `|`
-        let recover_pos = find_recover_position(&tokens);
+        // Find positions of `recover` and `rescue` keywords
+        let recover_pos = find_keyword_position(&tokens, "recover");
+        let rescue_pos = find_keyword_position(&tokens, "rescue");
 
-        match recover_pos {
-            None => {
-                // No recover branch — parse everything as statements
+        match (recover_pos, rescue_pos) {
+            (None, None) => {
+                // No recover or rescue branch — parse everything as statements
                 let stmts = parse_stmts_from_tokens(&tokens)?;
                 Ok(EhInput {
                     body: stmts,
                     recover: None,
+                    rescue: None,
                 })
             }
-            Some(pos) => {
-                // Split at recover position
-                let body_tokens: TokenStream2 = tokens[..pos].iter().cloned().collect();
-                let recover_tokens: TokenStream2 = tokens[pos..].iter().cloned().collect();
+            (None, Some(resc_pos)) => {
+                // Only rescue branch
+                let body_tokens: TokenStream2 = tokens[..resc_pos].iter().cloned().collect();
+                let rescue_tokens: TokenStream2 = tokens[resc_pos..].iter().cloned().collect();
+
+                let body_stmts = parse_stmts_from_stream(body_tokens)?;
+                let rescue_branch: RescueBranch = syn::parse2(rescue_tokens)?;
+
+                Ok(EhInput {
+                    body: body_stmts,
+                    recover: None,
+                    rescue: Some(rescue_branch),
+                })
+            }
+            (Some(rec_pos), None) => {
+                // Only recover branch
+                let body_tokens: TokenStream2 = tokens[..rec_pos].iter().cloned().collect();
+                let recover_tokens: TokenStream2 = tokens[rec_pos..].iter().cloned().collect();
 
                 let body_stmts = parse_stmts_from_stream(body_tokens)?;
                 let recover_branch: RecoverBranch = syn::parse2(recover_tokens)?;
@@ -66,6 +92,31 @@ impl Parse for EhInput {
                 Ok(EhInput {
                     body: body_stmts,
                     recover: Some(recover_branch),
+                    rescue: None,
+                })
+            }
+            (Some(rec_pos), Some(resc_pos)) => {
+                // Both branches: recover must come before rescue
+                if rec_pos >= resc_pos {
+                    return Err(syn::Error::new(
+                        proc_macro2::Span::call_site(),
+                        "`recover` must appear before `rescue`",
+                    ));
+                }
+
+                let body_tokens: TokenStream2 = tokens[..rec_pos].iter().cloned().collect();
+                let recover_tokens: TokenStream2 =
+                    tokens[rec_pos..resc_pos].iter().cloned().collect();
+                let rescue_tokens: TokenStream2 = tokens[resc_pos..].iter().cloned().collect();
+
+                let body_stmts = parse_stmts_from_stream(body_tokens)?;
+                let recover_branch: RecoverBranch = syn::parse2(recover_tokens)?;
+                let rescue_branch: RescueBranch = syn::parse2(rescue_tokens)?;
+
+                Ok(EhInput {
+                    body: body_stmts,
+                    recover: Some(recover_branch),
+                    rescue: Some(rescue_branch),
                 })
             }
         }
@@ -74,10 +125,36 @@ impl Parse for EhInput {
 
 impl Parse for RecoverBranch {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        // Expect: recover |ident| { body }
+        // Expect: recover |value, loss| { body }
         let keyword: Ident = input.parse()?;
         if keyword != "recover" {
             return Err(syn::Error::new(keyword.span(), "expected `recover`"));
+        }
+
+        // Parse |value, loss|
+        input.parse::<syn::Token![|]>()?;
+        let value_ident: Ident = input.parse()?;
+        input.parse::<syn::Token![,]>()?;
+        let loss_ident: Ident = input.parse()?;
+        input.parse::<syn::Token![|]>()?;
+
+        // Parse { body }
+        let body: Block = input.parse()?;
+
+        Ok(RecoverBranch {
+            value_ident,
+            loss_ident,
+            body,
+        })
+    }
+}
+
+impl Parse for RescueBranch {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        // Expect: rescue |ident| { body }
+        let keyword: Ident = input.parse()?;
+        if keyword != "rescue" {
+            return Err(syn::Error::new(keyword.span(), "expected `rescue`"));
         }
 
         // Parse |ident|
@@ -88,15 +165,15 @@ impl Parse for RecoverBranch {
         // Parse { body }
         let body: Block = input.parse()?;
 
-        Ok(RecoverBranch { error_ident, body })
+        Ok(RescueBranch { error_ident, body })
     }
 }
 
-/// Find the position of a top-level `recover` identifier that is followed by `|`.
-fn find_recover_position(tokens: &[proc_macro2::TokenTree]) -> Option<usize> {
+/// Find the position of a top-level keyword identifier that is followed by `|`.
+fn find_keyword_position(tokens: &[proc_macro2::TokenTree], keyword: &str) -> Option<usize> {
     for i in 0..tokens.len() {
         if let proc_macro2::TokenTree::Ident(ref ident) = tokens[i] {
-            if ident == "recover" {
+            if ident == keyword {
                 // Check that next token is `|`
                 if i + 1 < tokens.len() {
                     if let proc_macro2::TokenTree::Punct(ref p) = tokens[i + 1] {
@@ -107,7 +184,7 @@ fn find_recover_position(tokens: &[proc_macro2::TokenTree]) -> Option<usize> {
                 }
             }
         }
-        // Don't recurse into groups — `recover` inside braces/parens is user code
+        // Don't recurse into groups — keywords inside braces/parens are user code
     }
     None
 }
@@ -145,7 +222,7 @@ fn parse_stmts_from_stream(stream: TokenStream2) -> syn::Result<Vec<Stmt>> {
 ///
 /// # Recovery
 ///
-/// Add a `recover |e| { ... }` branch to handle failures:
+/// Add a `recover |value, loss| { ... }` branch to handle partial results:
 ///
 /// ```ignore
 /// use terni::{eh, Imperfect, ConvergenceLoss};
@@ -156,17 +233,56 @@ fn parse_stmts_from_stream(stream: TokenStream2) -> syn::Result<Vec<Stmt>> {
 ///         let b = step_two(a)?;
 ///         b + 1
 ///
-///         recover |e| {
+///         recover |value, loss| {
+///             adjust(value, &loss)
+///         }
+///     }
+/// }
+/// ```
+///
+/// # Rescue
+///
+/// Add a `rescue |e| { ... }` branch to handle failures:
+///
+/// ```ignore
+/// use terni::{eh, Imperfect, ConvergenceLoss};
+///
+/// fn process(input: i32) -> Imperfect<i32, String, ConvergenceLoss> {
+///     eh! {
+///         let a = step_one(input)?;
+///         let b = step_two(a)?;
+///         b + 1
+///
+///         rescue |e| {
 ///             fallback(e)
 ///         }
 ///     }
 /// }
 /// ```
 ///
-/// If the try body hits `Failure` (via `?`), the recovery closure runs with
-/// the error. The accumulated loss carries into the recovery. The result is
-/// always `Partial` — the failure happened. If no failure occurs, the recover
+/// If the try body hits `Failure` (via `?`), the rescue closure runs with
+/// the error. The accumulated loss carries into the rescue. The result is
+/// always `Partial` — the failure happened. If no failure occurs, the rescue
 /// branch is never executed.
+///
+/// # Full PbtA Block
+///
+/// ```ignore
+/// eh! {
+///     let a = step_one(input)?;
+///     step_two(a)
+///
+///     // 7-9: you got it, it cost something
+///     recover |value, loss| {
+///         adjust(value, &loss)
+///     }
+///
+///     // 6-: the MC makes a move
+///     rescue |error| {
+///         fallback(error)
+///     }
+/// }
+/// ```
 ///
 /// # Limitations
 ///
@@ -201,9 +317,41 @@ pub fn eh(input: TokenStream) -> TokenStream {
         (stmts, tail)
     };
 
-    let err_branch = match eh_input.recover {
+    // Build the Ok branch: handles Success and Partial from finish()
+    let ok_branch = match &eh_input.recover {
         None => {
-            // No recover: failure path unchanged
+            // No recover: finish() result passes through
+            quote! {
+                ::core::result::Result::Ok(__eh_val) => __eh_ctx.finish(__eh_val),
+            }
+        }
+        Some(recover) => {
+            let value_ident = &recover.value_ident;
+            let loss_ident = &recover.loss_ident;
+            let recover_stmts = &recover.body.stmts;
+            // With recover: check accumulated loss, apply recover closure if Partial
+            quote! {
+                ::core::result::Result::Ok(__eh_val) => {
+                    match __eh_ctx.into_loss() {
+                        ::core::option::Option::None => {
+                            ::terni::Imperfect::Success(__eh_val)
+                        },
+                        ::core::option::Option::Some(__eh_l) => {
+                            let #value_ident = __eh_val;
+                            let #loss_ident = __eh_l.clone();
+                            let __eh_recovered = { #(#recover_stmts)* };
+                            ::terni::Imperfect::Partial(__eh_recovered, __eh_l)
+                        },
+                    }
+                },
+            }
+        }
+    };
+
+    // Build the Err branch: handles Failure
+    let err_branch = match &eh_input.rescue {
+        None => {
+            // No rescue: failure path unchanged
             quote! {
                 ::core::result::Result::Err(__eh_err) => {
                     ::terni::Imperfect::failure_with_loss(
@@ -213,18 +361,15 @@ pub fn eh(input: TokenStream) -> TokenStream {
                 }
             }
         }
-        Some(recover) => {
-            let error_ident = &recover.error_ident;
-            let recover_stmts = &recover.body.stmts;
-            // Build a Failure with accumulated loss, then use unwrap_or_else to recover.
-            // This constrains E through failure_with_loss and unwrap_or_else signatures,
-            // and preserves accumulated loss from the try body into the Partial result.
+        Some(rescue) => {
+            let error_ident = &rescue.error_ident;
+            let rescue_stmts = &rescue.body.stmts;
             quote! {
                 ::core::result::Result::Err(__eh_err) => {
                     let __eh_loss = __eh_ctx.into_loss().unwrap_or_else(::terni::Loss::zero);
                     ::terni::Imperfect::failure_with_loss(__eh_err, __eh_loss)
                         .unwrap_or_else(|#error_ident| {
-                            #(#recover_stmts)*
+                            #(#rescue_stmts)*
                         })
                 }
             }
@@ -238,7 +383,7 @@ pub fn eh(input: TokenStream) -> TokenStream {
             ::core::result::Result::Ok(#tail)
         })();
         match __eh_result {
-            ::core::result::Result::Ok(__eh_val) => __eh_ctx.finish(__eh_val),
+            #ok_branch
             #err_branch
         }
     }};

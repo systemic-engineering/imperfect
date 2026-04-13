@@ -77,7 +77,33 @@ The inner block produces `Partial(11, ConvergenceLoss(2))`. The outer block's `?
 
 ## Recovery
 
-Add a `recover` branch to handle failures gracefully. If any `?` in the body hits `Failure`, the recovery closure runs with the error. The accumulated loss from the try body carries into the recovery. The result is always `Partial` — the failure happened.
+Add a `recover` branch to handle partial results. If the body completes with accumulated loss (Partial), the recovery closure runs with the value and loss. The closure transforms the value; the loss stays unchanged. Success passes through untouched.
+
+```rust
+use terni::{eh, Imperfect, ConvergenceLoss};
+
+fn adjusted(input: i32) -> Imperfect<i32, String, ConvergenceLoss> {
+    eh! {
+        let a = step_one(input)?;
+        let b = step_two(a)?;
+        b + 1
+
+        recover |value, loss| {
+            // 7-9: you got it, it cost something
+            eprintln!("lost {} steps", loss.steps());
+            value * 2  // adjust the value based on what was lost
+        }
+    }
+}
+```
+
+The `recover` closure receives `(value, loss)` — the value from the body and the accumulated loss. It returns a new value. The loss itself is fact, not something you edit.
+
+If no loss accumulated (Success), the `recover` branch is never executed.
+
+## Rescue
+
+Add a `rescue` branch to handle failures. If any `?` in the body hits `Failure`, the rescue closure runs with the error. The accumulated loss from the try body carries into the rescue. The result is always `Partial` — the failure happened.
 
 ```rust
 use terni::{eh, Imperfect, ConvergenceLoss};
@@ -88,7 +114,8 @@ fn resilient(input: i32) -> Imperfect<i32, String, ConvergenceLoss> {
         let b = step_two(a)?;
         b + 1
 
-        recover |e| {
+        rescue |e| {
+            // 6-: the MC makes a move
             eprintln!("failed: {}", e);
             0  // fallback value
         }
@@ -96,9 +123,9 @@ fn resilient(input: i32) -> Imperfect<i32, String, ConvergenceLoss> {
 }
 ```
 
-Without `recover`, a `Failure` propagates as `Failure(error, accumulated_loss)`. With `recover`, it becomes `Partial(recovered_value, accumulated_loss)`.
+Without `rescue`, a `Failure` propagates as `Failure(error, accumulated_loss)`. With `rescue`, it becomes `Partial(rescued_value, accumulated_loss)`.
 
-The recovery closure receives the error value. Use it or ignore it:
+The rescue closure receives the error value. Use it or ignore it:
 
 ```rust
 use terni::{eh, Imperfect, ConvergenceLoss};
@@ -108,14 +135,41 @@ fn with_error_info() -> Imperfect<String, String, ConvergenceLoss> {
         let val = might_fail()?;
         format!("got: {}", val)
 
-        recover |e| {
-            format!("recovered from: {}", e)
+        rescue |e| {
+            format!("rescued from: {}", e)
         }
     }
 }
 ```
 
-If no failure occurs, the `recover` branch is never executed and the result is `Success` or `Partial` as usual.
+If no failure occurs, the `rescue` branch is never executed.
+
+## Full PbtA Block
+
+Both branches are optional and independent. Use one, both, or neither. When both are present, `recover` comes before `rescue`:
+
+```rust
+use terni::{eh, Imperfect, ConvergenceLoss};
+
+fn full_pbta(input: i32) -> Imperfect<i32, String, ConvergenceLoss> {
+    eh! {
+        let a = step_one(input)?;
+        step_two(a)
+
+        // 7-9: you got it, it cost something
+        recover |value, loss| {
+            adjust(value, &loss)
+        }
+
+        // 6-: the MC makes a move
+        rescue |error| {
+            fallback(error)
+        }
+    }
+}
+
+// 10+: clean hit. no handler needed.
+```
 
 ## How It Works
 
@@ -125,8 +179,9 @@ The `eh!` proc macro rewrites the block:
 2. Wraps the block body in a closure returning `Result`
 3. Rewrites every `expr?` to `IntoEh::into_eh(expr, &mut __eh_ctx)?`
 4. Wraps the final expression in `Ok(...)`
-5. Matches the closure result: `Ok` calls `finish()`, `Err` calls `failure_with_loss()`
-6. With `recover`: `Err` builds a `Failure`, then calls `unwrap_or_else()` with the recovery closure — always producing `Partial`
+5. Matches the closure result: `Ok` checks accumulated loss, `Err` calls `failure_with_loss()`
+6. With `recover`: `Ok` with loss runs the recover closure with `(value, loss)`, returns `Partial(new_value, loss)`
+7. With `rescue`: `Err` builds a `Failure`, then calls `unwrap_or_else()` with the rescue closure — always producing `Partial`
 
 ## Limitations
 
