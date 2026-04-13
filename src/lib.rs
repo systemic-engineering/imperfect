@@ -160,7 +160,7 @@ impl<T, E, L: Loss> Imperfect<T, E, L> {
 
     /// Construct a partial result with measured loss. Alias for `Partial(value, loss)`.
     pub fn partial(value: T, loss: L) -> Self {
-        Imperfect::Success(value)
+        Imperfect::Partial(value, loss)
     }
 
     /// Construct a failure with zero accumulated loss.
