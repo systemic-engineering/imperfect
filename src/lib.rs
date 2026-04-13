@@ -402,8 +402,7 @@ impl<L: Loss> Eh<L> {
 
     /// Consume the context and return accumulated loss, if any.
     pub fn into_loss(self) -> Option<L> {
-        // DELIBERATELY BROKEN: always returns None
-        None
+        self.accumulated
     }
 }
 
@@ -425,13 +424,8 @@ pub trait IntoEh<T, E, L: Loss> {
 }
 
 impl<T, E, L: Loss> IntoEh<T, E, L> for Imperfect<T, E, L> {
-    fn into_eh(self, _ctx: &mut Eh<L>) -> Result<T, E> {
-        // DELIBERATELY BROKEN: not accumulating loss
-        match self {
-            Imperfect::Success(t) => Ok(t),
-            Imperfect::Partial(t, _) => Ok(t),
-            Imperfect::Failure(e, _) => Err(e),
-        }
+    fn into_eh(self, ctx: &mut Eh<L>) -> Result<T, E> {
+        ctx.eh(self)
     }
 }
 
