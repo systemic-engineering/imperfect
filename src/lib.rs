@@ -155,7 +155,7 @@ impl<T, E, L: Loss> Imperfect<T, E, L> {
 
     /// Construct a success. Alias for `Success(value)`.
     pub fn success(value: T) -> Self {
-        Imperfect::Success(value)
+        Imperfect::Partial(value, L::zero())
     }
 
     /// Construct a partial result with measured loss. Alias for `Partial(value, loss)`.
@@ -2338,5 +2338,42 @@ mod tests {
             a.clone().combine(b.clone()).combine(c.clone()),
             a.combine(b.combine(c))
         );
+    }
+
+    // --- Constructor convenience methods ---
+
+    #[test]
+    fn constructor_success() {
+        let i: Imperfect<u32, String, ConvergenceLoss> = Imperfect::success(42);
+        assert_eq!(i, Imperfect::Success(42));
+        assert!(i.is_ok());
+        assert!(!i.is_partial());
+    }
+
+    #[test]
+    fn constructor_partial() {
+        let i: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::partial(42, ConvergenceLoss::new(3));
+        assert_eq!(i, Imperfect::Partial(42, ConvergenceLoss::new(3)));
+        assert!(i.is_partial());
+        assert_eq!(i.clone().ok(), Some(42));
+        assert_eq!(i.loss().steps(), 3);
+    }
+
+    #[test]
+    fn constructor_failure() {
+        let i: Imperfect<u32, String, ConvergenceLoss> = Imperfect::failure("gone".into());
+        assert_eq!(i, Imperfect::Failure("gone".into(), ConvergenceLoss::new(0)));
+        assert!(i.is_err());
+        assert_eq!(i.loss().steps(), 0);
+    }
+
+    #[test]
+    fn constructor_failure_with_loss() {
+        let i: Imperfect<u32, String, ConvergenceLoss> =
+            Imperfect::failure_with_loss("gone".into(), ConvergenceLoss::new(5));
+        assert_eq!(i, Imperfect::Failure("gone".into(), ConvergenceLoss::new(5)));
+        assert!(i.is_err());
+        assert_eq!(i.loss().steps(), 5);
     }
 }
