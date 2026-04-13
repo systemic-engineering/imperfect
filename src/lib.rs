@@ -399,11 +399,45 @@ impl<L: Loss> Eh<L> {
     pub fn loss(&self) -> Option<&L> {
         self.accumulated.as_ref()
     }
+
+    /// Consume the context and return accumulated loss, if any.
+    pub fn into_loss(self) -> Option<L> {
+        // DELIBERATELY BROKEN: always returns None
+        None
+    }
 }
 
 impl<L: Loss> Default for Eh<L> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// --- IntoEh trait: type-dispatched extraction for eh! macro ---
+
+/// Trait for types that can be extracted through an [`Eh`] context.
+///
+/// Implemented for [`Imperfect`] (accumulates loss) and [`Result`](core::result::Result)
+/// (passes through). Used by the `eh!` macro to handle both types with `?`.
+pub trait IntoEh<T, E, L: Loss> {
+    /// Extract the value, accumulating loss if applicable.
+    fn into_eh(self, ctx: &mut Eh<L>) -> Result<T, E>;
+}
+
+impl<T, E, L: Loss> IntoEh<T, E, L> for Imperfect<T, E, L> {
+    fn into_eh(self, _ctx: &mut Eh<L>) -> Result<T, E> {
+        // DELIBERATELY BROKEN: not accumulating loss
+        match self {
+            Imperfect::Success(t) => Ok(t),
+            Imperfect::Partial(t, _) => Ok(t),
+            Imperfect::Failure(e, _) => Err(e),
+        }
+    }
+}
+
+impl<T, E, L: Loss> IntoEh<T, E, L> for Result<T, E> {
+    fn into_eh(self, _ctx: &mut Eh<L>) -> Result<T, E> {
+        self
     }
 }
 
@@ -2381,5 +2415,88 @@ mod tests {
         );
         assert!(i.is_err());
         assert_eq!(i.loss().steps(), 5);
+    }
+
+    // --- IntoEh trait ---
+
+    #[test]
+    fn into_eh_imperfect_success() {
+        let mut ctx: Eh<ConvergenceLoss> = Eh::new();
+        let imp: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Success(42);
+        let result = imp.into_eh(&mut ctx);
+        assert_eq!(result, Ok(42));
+        assert!(ctx.loss().is_none());
+    }
+
+    #[test]
+    fn into_eh_imperfect_partial_accumulates_loss() {
+        let mut ctx: Eh<ConvergenceLoss> = Eh::new();
+        let imp: Imperfect<i32, String, ConvergenceLoss> =
+            Imperfect::Partial(42, ConvergenceLoss::new(3));
+        let result = imp.into_eh(&mut ctx);
+        assert_eq!(result, Ok(42));
+        assert_eq!(ctx.loss().unwrap().steps(), 3);
+    }
+
+    #[test]
+    fn into_eh_imperfect_failure() {
+        let mut ctx: Eh<ConvergenceLoss> = Eh::new();
+        let imp: Imperfect<i32, String, ConvergenceLoss> =
+            Imperfect::Failure("boom".into(), ConvergenceLoss::new(2));
+        let result = imp.into_eh(&mut ctx);
+        assert_eq!(result, Err("boom".to_string()));
+        assert_eq!(ctx.loss().unwrap().steps(), 2);
+    }
+
+    #[test]
+    fn into_eh_result_ok_passes_through() {
+        let mut ctx: Eh<ConvergenceLoss> = Eh::new();
+        let r: Result<i32, String> = Ok(42);
+        let result = IntoEh::<i32, String, ConvergenceLoss>::into_eh(r, &mut ctx);
+        assert_eq!(result, Ok(42));
+        assert!(ctx.loss().is_none());
+    }
+
+    #[test]
+    fn into_eh_result_err_passes_through() {
+        let mut ctx: Eh<ConvergenceLoss> = Eh::new();
+        let r: Result<i32, String> = Err("fail".into());
+        let result = IntoEh::<i32, String, ConvergenceLoss>::into_eh(r, &mut ctx);
+        assert_eq!(result, Err("fail".to_string()));
+        assert!(ctx.loss().is_none());
+    }
+
+    #[test]
+    fn into_eh_result_does_not_accumulate_loss() {
+        let mut ctx: Eh<ConvergenceLoss> = Eh::new();
+        // First accumulate some loss from an Imperfect
+        let imp: Imperfect<i32, String, ConvergenceLoss> =
+            Imperfect::Partial(1, ConvergenceLoss::new(5));
+        let _ = imp.into_eh(&mut ctx);
+        // Then pass a Result through — loss should not change
+        let r: Result<i32, String> = Ok(2);
+        let result = IntoEh::<i32, String, ConvergenceLoss>::into_eh(r, &mut ctx);
+        assert_eq!(result, Ok(2));
+        assert_eq!(ctx.loss().unwrap().steps(), 5);
+    }
+
+    // --- Eh::into_loss ---
+
+    #[test]
+    fn eh_into_loss_none_when_no_loss() {
+        let ctx: Eh<ConvergenceLoss> = Eh::new();
+        assert!(ctx.into_loss().is_none());
+    }
+
+    #[test]
+    fn eh_into_loss_some_when_loss_accumulated() {
+        let mut ctx: Eh<ConvergenceLoss> = Eh::new();
+        let _ = ctx.eh(Imperfect::<i32, String, ConvergenceLoss>::Partial(
+            1,
+            ConvergenceLoss::new(7),
+        ));
+        let loss = ctx.into_loss();
+        assert!(loss.is_some());
+        assert_eq!(loss.unwrap().steps(), 7);
     }
 }
