@@ -191,6 +191,12 @@ The `eh!` proc macro rewrites the block:
 
 **`?` in closures accumulates to the same context.** If you use `?` inside a closure within `eh!`, loss accumulates into the outer block's context. This is usually what you want.
 
+**`__eh_ctx` name collision.** The macro generates an internal variable named `__eh_ctx`. If your code uses a variable with this exact name, it will collide. The double-underscore prefix makes this unlikely in practice, but it is not hygienically scoped (proc macros operate at call-site span).
+
+**`recover` / `rescue` as identifiers.** The parser detects `recover` and `rescue` keywords by scanning for a top-level identifier followed by `|`. If you have a variable named `recover` or `rescue` followed by a bitwise OR (`|`), the parser will misidentify it as a branch keyword. Rename the variable to avoid ambiguity.
+
+**`needless_question_mark` clippy lint.** When the tail expression of an `eh!` block is `expr?`, the macro expansion produces `Ok(IntoEh::into_eh(expr, ctx)?)` which clippy flags as redundant. This is inherent to the rewriting strategy and does not affect correctness. Suppress with `#[allow(clippy::needless_question_mark)]` on the enclosing function if needed.
+
 ## The `IntoEh` Trait
 
 The trait that makes `eh!` work:

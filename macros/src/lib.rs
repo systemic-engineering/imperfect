@@ -18,9 +18,9 @@ impl VisitMut for EhRewriter {
 
         // Rewrite: expr? → IntoEh::into_eh(expr, &mut __eh_ctx)?
         let inner = &node.expr;
-        node.expr = Box::new(syn::parse_quote! {
+        *node.expr = syn::parse_quote! {
             ::terni::IntoEh::into_eh(#inner, &mut __eh_ctx)
-        });
+        };
     }
 }
 
