@@ -438,6 +438,194 @@ impl<T, L: Loss> From<Option<T>> for Imperfect<T, (), L> {
     }
 }
 
+// --- Standard library Loss implementations ---
+//
+// These implementations cover common types that naturally form monoids under
+// `combine`. They fall into three categories:
+//
+// **Numeric losses** (`usize`, `u64`, `f64`): The simplest — just a count or
+// magnitude. `combine` is addition (saturating for integers, IEEE for floats).
+// `total()` is `MAX` / `INFINITY`, which acts as a proper absorbing element.
+//
+// **Collection losses** (`Vec<T>`, `HashSet<T>`, `BTreeSet<T>`, `String`):
+// Track *what* was lost, not just *how much*. `combine` appends or unions.
+//
+// > **Limitation**: Collections have no natural absorbing element. There is no
+// > `Vec` value `t` such that `x.combine(t) == t` for all `x`. `total()`
+// > returns the same as `zero()` (empty). The monoid identity and associativity
+// > laws hold, but the absorbing property of `total()` does not. If you need
+// > absorbing semantics, use a numeric loss type.
+//
+// **Tuple combinator** (`(A, B)`): Compose two loss dimensions independently.
+// Both components must be `Loss` types. `total()` absorbs correctly when both
+// components do.
+
+use std::collections::{BTreeSet, HashSet};
+use std::hash::Hash;
+
+// --- Vec<T>: labeled loss — track WHAT was lost as a list of events ---
+
+impl<T: Clone> Loss for Vec<T> {
+    fn zero() -> Self {
+        Vec::new()
+    }
+
+    fn total() -> Self {
+        Vec::new()
+    }
+
+    fn is_zero(&self) -> bool {
+        self.is_empty()
+    }
+
+    fn combine(mut self, other: Self) -> Self {
+        self.extend(other);
+        self
+    }
+}
+
+// --- HashSet<T>: unique losses — deduplicated loss tracking ---
+
+impl<T: Eq + Hash + Clone> Loss for HashSet<T> {
+    fn zero() -> Self {
+        HashSet::new()
+    }
+
+    fn total() -> Self {
+        HashSet::new()
+    }
+
+    fn is_zero(&self) -> bool {
+        self.is_empty()
+    }
+
+    fn combine(mut self, other: Self) -> Self {
+        self.extend(other);
+        self
+    }
+}
+
+// --- BTreeSet<T>: ordered unique losses ---
+
+impl<T: Ord + Clone> Loss for BTreeSet<T> {
+    fn zero() -> Self {
+        BTreeSet::new()
+    }
+
+    fn total() -> Self {
+        BTreeSet::new()
+    }
+
+    fn is_zero(&self) -> bool {
+        self.is_empty()
+    }
+
+    fn combine(mut self, other: Self) -> Self {
+        self.extend(other);
+        self
+    }
+}
+
+// --- String: human-readable loss log ---
+
+impl Loss for String {
+    fn zero() -> Self {
+        String::new()
+    }
+
+    fn total() -> Self {
+        String::new()
+    }
+
+    fn is_zero(&self) -> bool {
+        self.is_empty()
+    }
+
+    fn combine(mut self, other: Self) -> Self {
+        if !self.is_empty() && !other.is_empty() {
+            self.push_str("; ");
+        }
+        self.push_str(&other);
+        self
+    }
+}
+
+// --- Numeric losses: usize, u64, f64 ---
+
+impl Loss for usize {
+    fn zero() -> Self {
+        0
+    }
+
+    fn total() -> Self {
+        usize::MAX
+    }
+
+    fn is_zero(&self) -> bool {
+        *self == 0
+    }
+
+    fn combine(self, other: Self) -> Self {
+        self.saturating_add(other)
+    }
+}
+
+impl Loss for u64 {
+    fn zero() -> Self {
+        0
+    }
+
+    fn total() -> Self {
+        u64::MAX
+    }
+
+    fn is_zero(&self) -> bool {
+        *self == 0
+    }
+
+    fn combine(self, other: Self) -> Self {
+        self.saturating_add(other)
+    }
+}
+
+impl Loss for f64 {
+    fn zero() -> Self {
+        0.0
+    }
+
+    fn total() -> Self {
+        f64::INFINITY
+    }
+
+    fn is_zero(&self) -> bool {
+        *self == 0.0
+    }
+
+    fn combine(self, other: Self) -> Self {
+        self + other
+    }
+}
+
+// --- Tuple combinator: compose two independent loss dimensions ---
+
+impl<A: Loss, B: Loss> Loss for (A, B) {
+    fn zero() -> Self {
+        (A::zero(), B::zero())
+    }
+
+    fn total() -> Self {
+        (A::total(), B::total())
+    }
+
+    fn is_zero(&self) -> bool {
+        self.0.is_zero() && self.1.is_zero()
+    }
+
+    fn combine(self, other: Self) -> Self {
+        (self.0.combine(other.0), self.1.combine(other.1))
+    }
+}
+
 // --- Domain-specific loss types ---
 
 /// Distance to crystal. Zero means crystallized. Combine takes the max
@@ -662,6 +850,7 @@ impl std::fmt::Display for RoutingLoss {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::{BTreeSet, HashSet};
 
     fn double_u32(v: u32) -> u32 {
         v * 2
@@ -1767,5 +1956,389 @@ mod tests {
             .recover(|_| fetch_fallback("good"))
             .eh(process);
         assert_eq!(result, Imperfect::Success("processed:data".into()));
+    }
+
+    // --- Vec<T> as Loss ---
+
+    #[test]
+    fn vec_zero() {
+        let l = Vec::<String>::zero();
+        assert!(l.is_zero());
+        assert!(l.is_empty());
+    }
+
+    #[test]
+    fn vec_total_is_empty() {
+        // Collections have no absorbing element — total() == zero()
+        let l = Vec::<String>::total();
+        assert!(l.is_empty());
+    }
+
+    #[test]
+    fn vec_combine_appends() {
+        let a = vec!["field_x".to_string()];
+        let b = vec!["field_y".to_string(), "field_z".to_string()];
+        let c = a.combine(b);
+        assert_eq!(c, vec!["field_x", "field_y", "field_z"]);
+    }
+
+    #[test]
+    fn vec_combine_zero_is_identity() {
+        let a = vec!["lost".to_string()];
+        let c = a.clone().combine(Vec::zero());
+        assert_eq!(a, c);
+    }
+
+    #[test]
+    fn vec_is_zero_nonempty() {
+        let a = vec![1u32];
+        assert!(!a.is_zero());
+    }
+
+    #[test]
+    fn vec_in_imperfect() {
+        let i: Imperfect<u32, &str, Vec<String>> =
+            Imperfect::Partial(42, vec!["dim_3 dark".into()]);
+        assert!(i.is_partial());
+        assert_eq!(i.loss(), vec!["dim_3 dark".to_string()]);
+    }
+
+    // --- HashSet<T> as Loss ---
+
+    #[test]
+    fn hashset_zero() {
+        let l = HashSet::<String>::zero();
+        assert!(l.is_zero());
+    }
+
+    #[test]
+    fn hashset_total_is_empty() {
+        let l = HashSet::<String>::total();
+        assert!(l.is_empty());
+    }
+
+    #[test]
+    fn hashset_combine_unions() {
+        let a: HashSet<String> = ["x".into()].into_iter().collect();
+        let b: HashSet<String> = ["x".into(), "y".into()].into_iter().collect();
+        let c = a.combine(b);
+        assert_eq!(c.len(), 2);
+        assert!(c.contains("x"));
+        assert!(c.contains("y"));
+    }
+
+    #[test]
+    fn hashset_combine_zero_is_identity() {
+        let a: HashSet<u32> = [1, 2].into_iter().collect();
+        let c = a.clone().combine(HashSet::zero());
+        assert_eq!(a, c);
+    }
+
+    #[test]
+    fn hashset_is_zero_nonempty() {
+        let a: HashSet<u32> = [1].into_iter().collect();
+        assert!(!a.is_zero());
+    }
+
+    // --- BTreeSet<T> as Loss ---
+
+    #[test]
+    fn btreeset_zero() {
+        let l = BTreeSet::<String>::zero();
+        assert!(l.is_zero());
+    }
+
+    #[test]
+    fn btreeset_total_is_empty() {
+        let l = BTreeSet::<String>::total();
+        assert!(l.is_empty());
+    }
+
+    #[test]
+    fn btreeset_combine_unions_ordered() {
+        let a: BTreeSet<u32> = [3, 1].into_iter().collect();
+        let b: BTreeSet<u32> = [2, 1].into_iter().collect();
+        let c = a.combine(b);
+        let items: Vec<_> = c.into_iter().collect();
+        assert_eq!(items, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn btreeset_combine_zero_is_identity() {
+        let a: BTreeSet<u32> = [5, 10].into_iter().collect();
+        let c = a.clone().combine(BTreeSet::zero());
+        assert_eq!(a, c);
+    }
+
+    #[test]
+    fn btreeset_is_zero_nonempty() {
+        let a: BTreeSet<u32> = [1].into_iter().collect();
+        assert!(!a.is_zero());
+    }
+
+    // --- String as Loss ---
+
+    #[test]
+    fn string_zero() {
+        let l = String::zero();
+        assert!(l.is_zero());
+        assert!(l.is_empty());
+    }
+
+    #[test]
+    fn string_total_is_empty() {
+        let l = String::total();
+        assert!(l.is_empty());
+    }
+
+    #[test]
+    fn string_combine_with_separator() {
+        let a = "field_x lost".to_string();
+        let b = "field_y truncated".to_string();
+        let c = a.combine(b);
+        assert_eq!(c, "field_x lost; field_y truncated");
+    }
+
+    #[test]
+    fn string_combine_empty_left() {
+        let a = String::new();
+        let b = "something".to_string();
+        let c = a.combine(b);
+        assert_eq!(c, "something");
+    }
+
+    #[test]
+    fn string_combine_empty_right() {
+        let a = "something".to_string();
+        let b = String::new();
+        let c = a.combine(b);
+        assert_eq!(c, "something");
+    }
+
+    #[test]
+    fn string_combine_both_empty() {
+        let a = String::new();
+        let b = String::new();
+        let c = a.combine(b);
+        assert!(c.is_zero());
+    }
+
+    #[test]
+    fn string_is_zero_nonempty() {
+        assert!(!"hello".to_string().is_zero());
+    }
+
+    #[test]
+    fn string_in_imperfect() {
+        let i: Imperfect<u32, &str, String> =
+            Imperfect::Partial(42, "precision lost".into());
+        assert_eq!(i.loss(), "precision lost");
+    }
+
+    // --- usize as Loss ---
+
+    #[test]
+    fn usize_zero() {
+        assert!(usize::zero().is_zero());
+        assert_eq!(usize::zero(), 0);
+    }
+
+    #[test]
+    fn usize_total() {
+        assert_eq!(usize::total(), usize::MAX);
+        assert!(!usize::total().is_zero());
+    }
+
+    #[test]
+    fn usize_combine_adds() {
+        assert_eq!(3usize.combine(4), 7);
+    }
+
+    #[test]
+    fn usize_combine_saturates() {
+        assert_eq!(usize::MAX.combine(1), usize::MAX);
+    }
+
+    #[test]
+    fn usize_combine_zero_is_identity() {
+        assert_eq!(5usize.combine(usize::zero()), 5);
+    }
+
+    #[test]
+    fn usize_total_is_absorbing() {
+        assert_eq!(42usize.combine(usize::total()), usize::MAX);
+        assert_eq!(usize::total().combine(42), usize::MAX);
+    }
+
+    #[test]
+    fn usize_in_imperfect() {
+        let i: Imperfect<&str, &str, usize> = Imperfect::Partial("value", 3);
+        assert_eq!(i.loss(), 3);
+    }
+
+    // --- u64 as Loss ---
+
+    #[test]
+    fn u64_zero() {
+        assert!(u64::zero().is_zero());
+        assert_eq!(u64::zero(), 0);
+    }
+
+    #[test]
+    fn u64_total() {
+        assert_eq!(u64::total(), u64::MAX);
+    }
+
+    #[test]
+    fn u64_combine_adds() {
+        assert_eq!(10u64.combine(20), 30);
+    }
+
+    #[test]
+    fn u64_combine_saturates() {
+        assert_eq!(u64::MAX.combine(1), u64::MAX);
+    }
+
+    #[test]
+    fn u64_combine_zero_is_identity() {
+        assert_eq!(7u64.combine(u64::zero()), 7);
+    }
+
+    #[test]
+    fn u64_total_is_absorbing() {
+        assert_eq!(99u64.combine(u64::total()), u64::MAX);
+    }
+
+    // --- f64 as Loss ---
+
+    #[test]
+    fn f64_zero() {
+        assert!(f64::zero().is_zero());
+        assert_eq!(f64::zero(), 0.0);
+    }
+
+    #[test]
+    fn f64_total() {
+        assert!(f64::total().is_infinite());
+        assert!(!f64::total().is_zero());
+    }
+
+    #[test]
+    fn f64_combine_adds() {
+        assert_eq!((1.5f64).combine(2.5), 4.0);
+    }
+
+    #[test]
+    fn f64_combine_zero_is_identity() {
+        assert_eq!((2.75f64).combine(f64::zero()), 2.75);
+    }
+
+    #[test]
+    fn f64_total_is_absorbing() {
+        assert!((42.0f64).combine(f64::total()).is_infinite());
+        assert!(f64::total().combine(42.0).is_infinite());
+    }
+
+    #[test]
+    fn f64_is_zero_nonzero() {
+        assert!(!(0.001f64).is_zero());
+    }
+
+    // --- (A, B) tuple as Loss ---
+
+    #[test]
+    fn tuple_zero() {
+        let l = <(usize, f64)>::zero();
+        assert!(l.is_zero());
+        assert_eq!(l, (0, 0.0));
+    }
+
+    #[test]
+    fn tuple_total() {
+        let l = <(usize, f64)>::total();
+        assert_eq!(l.0, usize::MAX);
+        assert!(l.1.is_infinite());
+    }
+
+    #[test]
+    fn tuple_is_zero_both_must_be_zero() {
+        assert!(!(1usize, 0.0f64).is_zero());
+        assert!(!(0usize, 1.0f64).is_zero());
+        assert!((0usize, 0.0f64).is_zero());
+    }
+
+    #[test]
+    fn tuple_combine_independent() {
+        let a = (3usize, 1.0f64);
+        let b = (4usize, 2.5f64);
+        let c = a.combine(b);
+        assert_eq!(c, (7, 3.5));
+    }
+
+    #[test]
+    fn tuple_combine_zero_is_identity() {
+        let a = (5usize, 2.0f64);
+        let c = a.combine(<(usize, f64)>::zero());
+        assert_eq!(c, (5, 2.0));
+    }
+
+    #[test]
+    fn tuple_total_is_absorbing() {
+        let a = (10usize, 3.0f64);
+        let c = a.combine(<(usize, f64)>::total());
+        assert_eq!(c.0, usize::MAX);
+        assert!(c.1.is_infinite());
+    }
+
+    #[test]
+    fn tuple_in_imperfect() {
+        // Composite loss: count + magnitude
+        let i: Imperfect<&str, &str, (usize, f64)> =
+            Imperfect::Partial("value", (2, 0.5));
+        let loss = i.loss();
+        assert_eq!(loss.0, 2);
+        assert_eq!(loss.1, 0.5);
+    }
+
+    #[test]
+    fn tuple_nested() {
+        // (usize, (f64, u64)) — three dimensions
+        let a = (1usize, (0.5f64, 10u64));
+        let b = (2usize, (1.5f64, 20u64));
+        let c = a.combine(b);
+        assert_eq!(c, (3, (2.0, 30)));
+    }
+
+    // --- associativity checks ---
+
+    #[test]
+    fn usize_associative() {
+        let a = 1usize;
+        let b = 2usize;
+        let c = 3usize;
+        assert_eq!(a.combine(b).combine(c), a.combine(b.combine(c)));
+    }
+
+    #[test]
+    fn string_associative() {
+        let a = "a".to_string();
+        let b = "b".to_string();
+        let c = "c".to_string();
+        // (a; b); c vs a; (b; c)  — both should give "a; b; c"
+        assert_eq!(
+            a.clone().combine(b.clone()).combine(c.clone()),
+            a.combine(b.combine(c))
+        );
+    }
+
+    #[test]
+    fn vec_associative() {
+        let a = vec![1];
+        let b = vec![2];
+        let c = vec![3];
+        assert_eq!(
+            a.clone().combine(b.clone()).combine(c.clone()),
+            a.combine(b.combine(c))
+        );
     }
 }
