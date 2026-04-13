@@ -2672,8 +2672,10 @@ mod tests {
             assert_eq!(result.ok(), Some(vec![2, 4, 6]));
         }
 
+        // --- rescue: the 6- move (renamed from recover) ---
+
         #[test]
-        fn recover_basic_from_failure() {
+        fn rescue_basic_from_failure() {
             let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
                 let a = Imperfect::<i32, String, ConvergenceLoss>::Failure(
                     "boom".into(),
@@ -2681,7 +2683,7 @@ mod tests {
                 )?;
                 a + 1
 
-                recover |_e| {
+                rescue |_e| {
                     42
                 }
             };
@@ -2691,7 +2693,7 @@ mod tests {
         }
 
         #[test]
-        fn recover_accumulated_loss_from_partial_steps() {
+        fn rescue_accumulated_loss_carries() {
             let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
                 let a = Imperfect::<i32, String, ConvergenceLoss>::Partial(
                     1,
@@ -2703,7 +2705,7 @@ mod tests {
                 )?;
                 a
 
-                recover |_e| {
+                rescue |_e| {
                     99
                 }
             };
@@ -2714,20 +2716,76 @@ mod tests {
         }
 
         #[test]
-        fn recover_uses_error() {
+        fn rescue_uses_error() {
             let result: Imperfect<String, String, ConvergenceLoss> = eh! {
                 Imperfect::<String, String, ConvergenceLoss>::Failure(
                     "the error".into(),
                     ConvergenceLoss::new(0),
                 )?
 
-                recover |e| {
-                    format!("recovered from: {}", e)
+                rescue |e| {
+                    format!("rescued from: {}", e)
                 }
             };
             assert!(result.is_partial());
             assert_eq!(result.loss().steps(), 0);
-            assert_eq!(result.ok(), Some("recovered from: the error".to_string()));
+            assert_eq!(result.ok(), Some("rescued from: the error".to_string()));
+        }
+
+        #[test]
+        fn rescue_not_triggered_on_success() {
+            let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
+                let a = Imperfect::<i32, String, ConvergenceLoss>::Success(42)?;
+                a
+
+                rescue |_e| {
+                    0 // should never run
+                }
+            };
+            assert_eq!(result, Imperfect::Success(42));
+        }
+
+        // --- recover: the 7-9 move (Partial handler) ---
+
+        #[test]
+        fn recover_transforms_partial_value() {
+            let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
+                let a = Imperfect::<i32, String, ConvergenceLoss>::Partial(
+                    10,
+                    ConvergenceLoss::new(3),
+                )?;
+                a + 5
+
+                recover |value, _loss| {
+                    value * 2
+                }
+            };
+            assert!(result.is_partial());
+            assert_eq!(result.loss().steps(), 3); // loss unchanged
+            assert_eq!(result.ok(), Some(30)); // (10 + 5) * 2
+        }
+
+        #[test]
+        fn recover_receives_accumulated_loss() {
+            let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
+                let a = Imperfect::<i32, String, ConvergenceLoss>::Partial(
+                    1,
+                    ConvergenceLoss::new(5),
+                )?;
+                let b = Imperfect::<i32, String, ConvergenceLoss>::Partial(
+                    a + 1,
+                    ConvergenceLoss::new(3),
+                )?;
+                b
+
+                recover |value, loss| {
+                    value + loss.steps() as i32
+                }
+            };
+            assert!(result.is_partial());
+            // ConvergenceLoss combines with max: max(5, 3) = 5
+            assert_eq!(result.loss().steps(), 5);
+            assert_eq!(result.ok(), Some(2 + 5)); // value=2, loss.steps()=5
         }
 
         #[test]
@@ -2736,7 +2794,7 @@ mod tests {
                 let a = Imperfect::<i32, String, ConvergenceLoss>::Success(42)?;
                 a
 
-                recover |_e| {
+                recover |_value, _loss| {
                     0 // should never run
                 }
             };
@@ -2744,7 +2802,89 @@ mod tests {
         }
 
         #[test]
-        fn no_recover_unchanged_behavior() {
+        fn recover_not_triggered_on_failure() {
+            // When there's no rescue branch, failure propagates even with recover
+            let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
+                let a = Imperfect::<i32, String, ConvergenceLoss>::Failure(
+                    "boom".into(),
+                    ConvergenceLoss::new(3),
+                )?;
+                a
+
+                recover |_value, _loss| {
+                    999 // should never run — this is for Partial, not Failure
+                }
+            };
+            assert!(result.is_err());
+            assert_eq!(result.err(), Some("boom".into()));
+        }
+
+        // --- both: recover + rescue together ---
+
+        #[test]
+        fn both_recover_handles_partial_rescue_handles_failure() {
+            // Partial path: recover runs
+            let partial_result: Imperfect<i32, String, ConvergenceLoss> = eh! {
+                let a = Imperfect::<i32, String, ConvergenceLoss>::Partial(
+                    10,
+                    ConvergenceLoss::new(2),
+                )?;
+                a
+
+                recover |value, _loss| {
+                    value + 100
+                }
+
+                rescue |_error| {
+                    -1
+                }
+            };
+            assert!(partial_result.is_partial());
+            assert_eq!(partial_result.loss().steps(), 2);
+            assert_eq!(partial_result.ok(), Some(110));
+
+            // Failure path: rescue runs
+            let failure_result: Imperfect<i32, String, ConvergenceLoss> = eh! {
+                let _a = Imperfect::<i32, String, ConvergenceLoss>::Failure(
+                    "boom".into(),
+                    ConvergenceLoss::new(5),
+                )?;
+                _a
+
+                recover |value, _loss| {
+                    value + 100 // should not run
+                }
+
+                rescue |_error| {
+                    -1
+                }
+            };
+            assert!(failure_result.is_partial());
+            assert_eq!(failure_result.loss().steps(), 5);
+            assert_eq!(failure_result.ok(), Some(-1));
+        }
+
+        #[test]
+        fn both_success_passes_through_both() {
+            let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
+                let a = Imperfect::<i32, String, ConvergenceLoss>::Success(42)?;
+                a
+
+                recover |_value, _loss| {
+                    0 // should not run
+                }
+
+                rescue |_error| {
+                    -1 // should not run
+                }
+            };
+            assert_eq!(result, Imperfect::Success(42));
+        }
+
+        // --- neither: unchanged behavior ---
+
+        #[test]
+        fn neither_unchanged_behavior() {
             let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
                 let a = Imperfect::<i32, String, ConvergenceLoss>::Success(1)?;
                 a + 1
