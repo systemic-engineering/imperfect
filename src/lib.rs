@@ -170,7 +170,7 @@ impl<T, E, L: Loss> Imperfect<T, E, L> {
 
     /// Construct a failure carrying accumulated loss from prior steps.
     pub fn failure_with_loss(error: E, loss: L) -> Self {
-        Imperfect::Failure(error, loss)
+        Imperfect::Failure(error, L::zero())
     }
 
     // --- Queries ---
