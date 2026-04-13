@@ -115,12 +115,44 @@ assert!(result.is_partial());
 
 ## `eh?`
 
-The question. Coming in a future release.
+The question. For real this time.
 
-Block macro for implicit loss accumulation — `eh! { }` will do what `Eh` does without the boilerplate.
+```rust
+use terni::{eh, Imperfect, ConvergenceLoss};
+
+fn process(input: i32) -> Imperfect<i32, String, ConvergenceLoss> {
+    eh! {
+        let a = step_one(input)?;
+        let b = step_two(a)?;
+        b + 1
+    }
+}
+
+fn step_one(x: i32) -> Imperfect<i32, String, ConvergenceLoss> {
+    Imperfect::Partial(x * 2, ConvergenceLoss::new(1))
+}
+
+fn step_two(x: i32) -> Imperfect<i32, String, ConvergenceLoss> {
+    Imperfect::Success(x + 10)
+}
+
+let result = process(5);
+assert!(result.is_partial());
+assert_eq!(result.loss().steps(), 1);
+assert_eq!(result.ok(), Some(21));
+```
+
+Plain `?` on `Imperfect`. Loss accumulates implicitly. No context variable. No `.eh()` calls.
+
+The macro rewrites `expr?` to route through an `IntoEh` trait, which handles both `Imperfect` (accumulates loss) and `Result` (passes through). Mix them freely inside an `eh!` block.
+
+`return` inside `eh!` returns from the block, not the enclosing function. Use `?` for early exit.
+
+[Macro guide ->](docs/macro.md)
 
 ## More
 
+- [Macro](docs/macro.md) — `eh!` block macro, `IntoEh` trait, how it works
 - [Loss types](docs/loss-types.md) — the `Loss` trait, shipped types, stdlib impls, custom implementations
 - [Pipeline](docs/pipeline.md) — `.eh()` bind in depth, loss accumulation rules
 - [Context](docs/context.md) — `Eh` struct, mixing `Imperfect` and `Result`
