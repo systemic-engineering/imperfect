@@ -9,8 +9,12 @@ keywords = ["error-handling", "partial", "ternary", "pbta", "eh"]
 categories = ["rust-patterns", "no-std"]
 readme = "README.md"
 
+[features]
+default = ["macros"]
+macros = ["dep:terni-macros"]
+
 [dependencies]
-# None. Depends on nothing.
+terni-macros = { path = "macros", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

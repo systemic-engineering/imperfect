@@ -91,6 +91,9 @@
 //! assert!(result.is_partial());
 //! ```
 
+#[cfg(feature = "macros")]
+pub use terni_macros::eh;
+
 /// A measure of what didn't survive a transformation.
 ///
 /// Loss forms a monoid: `zero()` is the identity element, `combine` is

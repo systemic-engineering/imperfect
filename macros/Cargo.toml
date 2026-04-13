@@ -1,0 +1,15 @@
+[package]
+name = "terni-macros"
+version = "0.5.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Proc macros for terni — the eh! block macro"
+repository = "https://github.com/systemic-engineering/prism"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full", "visit-mut"] }
+quote = "1"
+proc-macro2 = "1"
