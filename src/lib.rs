@@ -221,6 +221,40 @@ impl<T, E, L: Loss> Imperfect<T, E, L> {
         self.eh(f)
     }
 
+    /// Attempt recovery from Failure. The loss carries forward.
+    ///
+    /// Success and Partial pass through unchanged.
+    /// Failure → recovery function → result carries the failure's accumulated loss.
+    ///
+    /// Recovery from Failure never produces Success — because the failure happened.
+    /// The loss is real. The best you can do is recover a value and carry the cost.
+    pub fn recover(self, f: impl FnOnce(E) -> Imperfect<T, E, L>) -> Imperfect<T, E, L> {
+        match self {
+            Imperfect::Success(v) => Imperfect::Success(v),
+            Imperfect::Partial(v, l) => Imperfect::Partial(v, l),
+            Imperfect::Failure(e, loss) => match f(e) {
+                Imperfect::Success(v) => Imperfect::Partial(v, loss),
+                Imperfect::Partial(v, l2) => Imperfect::Partial(v, loss.combine(l2)),
+                Imperfect::Failure(e2, l2) => Imperfect::Failure(e2, loss.combine(l2)),
+            },
+        }
+    }
+
+    /// Recover a default value from Failure. Always produces Partial.
+    /// You can't un-fail. But you can get something back. The loss survives.
+    pub fn unwrap_or_else(self, f: impl FnOnce(E) -> T) -> Imperfect<T, E, L> {
+        match self {
+            Imperfect::Success(v) => Imperfect::Success(v),
+            Imperfect::Partial(v, l) => Imperfect::Partial(v, l),
+            Imperfect::Failure(e, loss) => Imperfect::Partial(f(e), loss),
+        }
+    }
+
+    /// Recover with a static default. Always produces Partial on Failure.
+    pub fn unwrap_or(self, default: T) -> Imperfect<T, E, L> {
+        self.unwrap_or_else(|_| default)
+    }
+
     /// Propagate accumulated loss from `self` through `next`.
     ///
     /// Deprecated in favor of [`eh`](Self::eh) / [`imp`](Self::imp) / [`tri`](Self::tri).
