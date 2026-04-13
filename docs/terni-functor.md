@@ -6,9 +6,9 @@ For the mathematically curious. Not required reading — you can use `.eh()` pro
 
 A terni-functor is a three-state composition that carries a monoidal annotation through the middle state. `Imperfect<T, E, L>` is one:
 
-- **Success(T)** — pure value, zero annotation
-- **Partial(T, L)** — value with annotation
-- **Failure(E, L)** — no value, but the cost of getting here is measured
+- **`Success(T)`** — pure value, zero annotation
+- **`Partial(T, L)`** — value with annotation
+- **`Failure(E, L)`** — no value, but the accumulated cost of getting here is carried
 
 The bind operator (`.eh()`) composes these while accumulating the annotation via the `Loss` monoid.
 
@@ -24,9 +24,9 @@ Haskell's `Writer w a` carries a monoidal log alongside a value. `Partial(T, L)`
 
 - `Success` carries no log (it's structurally absent, not zero)
 - `Partial` carries the log
-- `Failure` has no value, but carries the accumulated loss from before the failure
+- `Failure(E, L)` has no value, but carries the accumulated loss from before the failure
 
-This is not `Writer`. `Writer` is `(a, w)`. `Imperfect` is `Success a | Partial a w | Failure e w`. The failure path and the "genuinely zero loss" path both exist as distinct states, not as special values of the monoid. Failure carries loss to preserve the cost of computation that preceded it.
+This is not `Writer`. `Writer` is `(a, w)`. `Imperfect` is `Success a | Partial a w | Failure e w`. The failure path and the "genuinely zero loss" path both exist as distinct states, not as special values of the monoid. `Failure` carries loss to preserve the cost of computation that preceded it — `.loss()` on a `Failure` returns this carried cost, not `L::total()`.
 
 ## The monad laws
 
@@ -97,7 +97,7 @@ The order of binding doesn't matter. Loss accumulation is associative because `L
 The monad laws hold because:
 
 1. `Success` acts as a genuine unit — no loss to combine, value passes through.
-2. `Failure` acts as a zero — short-circuits, `f` never called.
+2. `Failure(E, L)` acts as a zero — short-circuits, `f` never called, carried loss preserved.
 3. `Partial`'s loss accumulation delegates to `Loss::combine`, which is required to be associative.
 
 The `Loss` monoid does the heavy lifting. Any associative `combine` with an identity `zero` gives you a lawful bind for free. The three-state structure just adds the failure short-circuit that `Writer` lacks.

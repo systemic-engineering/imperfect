@@ -57,17 +57,17 @@ assert_eq!(result.loss().steps(), 5);  // max(3, 5) for ConvergenceLoss
 
 ### Anything x Failure = Failure (loss carried)
 
-Failure short-circuits. If the input is Failure, `f` is never called. If `f` returns Failure, prior loss is combined with the failure's loss — the value is gone, but the cost of getting here is measured.
+Failure short-circuits. If the input is `Failure(E, L)`, `f` is never called — the carried loss is preserved. If `f` returns `Failure`, prior loss is combined with the failure's loss — the value is gone, but the cost of getting here is measured.
 
 ```rust
 use terni::{Imperfect, ConvergenceLoss};
 
-// Failure input: f is never called, loss preserved
-let result = Imperfect::<i32, String, ConvergenceLoss>::Failure("gone".into(), ConvergenceLoss::new(0))
+// Failure input: f is never called, carried loss preserved
+let result = Imperfect::<i32, String, ConvergenceLoss>::Failure("gone".into(), ConvergenceLoss::new(4))
     .eh(|x| Imperfect::Success(x + 1));
 
 assert!(result.is_err());
-assert!(result.loss().is_zero());
+assert_eq!(result.loss().steps(), 4);  // carried loss, not total()
 
 // Partial then failure: losses combine
 let result = Imperfect::<i32, String, ConvergenceLoss>::Partial(1, ConvergenceLoss::new(3))
@@ -88,7 +88,7 @@ fn validate(input: &str) -> Imperfect<i32, String, ConvergenceLoss> {
     match input.parse::<i32>() {
         Ok(n) if n > 0 => Imperfect::Success(n),
         Ok(n) => Imperfect::Partial(n.abs(), ConvergenceLoss::new(1)),  // corrected sign
-        Err(_) => Imperfect::Failure(format!("not a number: {}", input)),
+        Err(_) => Imperfect::Failure(format!("not a number: {}", input), ConvergenceLoss::zero()),
     }
 }
 
@@ -113,6 +113,38 @@ assert!(result.is_partial());
 assert_eq!(result.ok(), Some(1.0));
 assert_eq!(result.loss().steps(), 1);  // max(1, 1) = 1 — sign corrected + clamped
 ```
+
+## Recovery
+
+`.recover()` attempts to salvage a value from `Failure`. Recovery from `Failure` always produces `Partial` — the failure happened, and that cost is carried forward.
+
+```rust
+use terni::{Imperfect, ConvergenceLoss};
+
+let result = Imperfect::<i32, String, ConvergenceLoss>::Success(1)
+    .eh(|_| Imperfect::<i32, String, ConvergenceLoss>::Failure("broke".into(), ConvergenceLoss::new(3)))
+    .recover(|_e| Imperfect::Success(0));
+
+assert!(result.is_partial());  // never Success — the failure was real
+assert_eq!(result.ok(), Some(0));
+assert_eq!(result.loss().steps(), 3);  // cost survives
+```
+
+`.unwrap_or()` and `.unwrap_or_else()` are shorthand for recovery with a default:
+
+```rust
+use terni::{Imperfect, ConvergenceLoss};
+
+let failed: Imperfect<i32, String, ConvergenceLoss> =
+    Imperfect::Failure("gone".into(), ConvergenceLoss::new(5));
+
+let recovered = failed.unwrap_or(0);
+assert!(recovered.is_partial());
+assert_eq!(recovered.ok(), Some(0));
+assert_eq!(recovered.loss().steps(), 5);
+```
+
+Success and Partial pass through `.recover()`, `.unwrap_or()`, and `.unwrap_or_else()` unchanged.
 
 ## Aliases
 

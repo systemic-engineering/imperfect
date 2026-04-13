@@ -52,7 +52,7 @@ assert!(eh.loss().is_none());
 
 Extracts the value from an `Imperfect`, accumulating any loss. Returns `Ok(T)` for Success and Partial, `Err(E)` for Failure.
 
-This is where loss gets absorbed into the context. Success adds nothing. Partial adds its loss (via `combine` if loss already exists). Failure accumulates its carried loss into the context, then returns `Err`.
+This is where loss gets absorbed into the context. Success adds nothing. Partial adds its loss (via `combine` if loss already exists). Failure accumulates its carried loss into the context, then returns `Err`. Since `Failure(E, L)` carries accumulated loss, that loss is combined into the context before the error is returned.
 
 ### `.imp()` and `.tri()`
 
@@ -182,5 +182,31 @@ fn verify_payment(p: Payment) -> Imperfect<VerifiedPayment, String, ConvergenceL
 ```
 
 The loss tells downstream consumers how much confidence to place in this result. Zero loss = fully verified. Nonzero = verified with caveats. Failure = rejected.
+
+## Recovery after early return
+
+When `Eh.eh()` returns `Err`, you've already early-returned from the function. But the caller can recover using `.recover()` on the returned `Imperfect`:
+
+```rust
+use terni::{Imperfect, ConvergenceLoss};
+
+fn fragile_step(x: i32) -> Imperfect<i32, String, ConvergenceLoss> {
+    if x > 10 {
+        Imperfect::Failure("too big".into(), ConvergenceLoss::new(2))
+    } else {
+        Imperfect::Success(x)
+    }
+}
+
+// The pipeline fails, but we recover with a default
+let result = Imperfect::<i32, String, ConvergenceLoss>::Success(20)
+    .eh(fragile_step)
+    .recover(|_e| Imperfect::Success(10));
+
+// Recovery from Failure always produces Partial — the failure was real
+assert!(result.is_partial());
+assert_eq!(result.ok(), Some(10));
+assert_eq!(result.loss().steps(), 2);  // the cost of getting here survives
+```
 
 [Back to README](../README.md) · [Terni-functor →](terni-functor.md)

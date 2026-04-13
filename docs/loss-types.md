@@ -20,6 +20,8 @@ pub trait Loss: Clone + Default {
 - **`is_zero()`** — test whether this loss is lossless.
 - **`combine()`** — accumulate two losses. Must be associative: `a.combine(b).combine(c) == a.combine(b.combine(c))`.
 
+**Important:** `.loss()` on a `Failure(E, L)` returns the *carried* loss — the cost accumulated before the failure — not `L::total()`. If you need total loss, call `L::total()` directly. The carried loss is information you can't reconstruct from the type alone.
+
 The semantics of `combine` are domain-specific. That's the point. "What does it mean to lose more?" depends on what you're measuring.
 
 ## `ConvergenceLoss`

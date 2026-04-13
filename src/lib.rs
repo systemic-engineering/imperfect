@@ -5,10 +5,11 @@
 //!
 //! Result extended with partial success. Three states:
 //!
-//! - **Success** — the transformation preserved everything. Zero loss.
-//! - **Partial** — a value came through, but something was lost getting here.
+//! - **`Success(T)`** — the transformation preserved everything. Zero loss.
+//! - **`Partial(T, L)`** — a value came through, but something was lost getting here.
 //!   The loss is measured and carried forward.
-//! - **Failure** — no value survived, but the cost of getting here is measured.
+//! - **`Failure(E, L)`** — no value survived, but the cost of getting here is measured.
+//!   The accumulated loss tells you what it cost to arrive at this failure.
 //!
 //! The middle state is the point. Most real transformations are not perfect
 //! and not failed. They are partial: a value exists, and it cost something.
@@ -19,6 +20,24 @@
 //! carries its own loss type: [`ConvergenceLoss`] for iterative refinement,
 //! [`ApertureLoss`] for partial observation, [`RoutingLoss`] for decision
 //! uncertainty.
+//!
+//! ## Constructors
+//!
+//! ```rust
+//! use terni::{Imperfect, ConvergenceLoss};
+//!
+//! // The four ways to construct an Imperfect:
+//! let perfect: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Success(42);
+//! let lossy: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Partial(42, ConvergenceLoss::new(3));
+//! let failed: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Failure("gone".into(), ConvergenceLoss::new(0));
+//! let failed_with_cost: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Failure("gone".into(), ConvergenceLoss::new(5));
+//!
+//! assert!(perfect.is_ok());
+//! assert!(lossy.is_partial());
+//! assert!(failed.is_err());
+//! // Failure carries accumulated loss — the cost of getting here:
+//! assert_eq!(failed_with_cost.loss().steps(), 5);
+//! ```
 //!
 //! ## The Terni-Functor
 //!
@@ -40,6 +59,23 @@
 //!
 //! assert!(result.is_partial());
 //! assert_eq!(result.ok(), Some(3));
+//! ```
+//!
+//! ### Recovery
+//!
+//! ```rust
+//! use terni::{Imperfect, ConvergenceLoss};
+//!
+//! // Recovery from failure always produces Partial — the failure happened,
+//! // and that cost is carried forward.
+//! let failed: Imperfect<i32, String, ConvergenceLoss> =
+//!     Imperfect::Failure("gone".into(), ConvergenceLoss::new(3));
+//!
+//! let recovered = failed.recover(|_e| Imperfect::Success(0));
+//!
+//! assert!(recovered.is_partial());  // never Success — the failure was real
+//! assert_eq!(recovered.loss().steps(), 3);  // cost survives
+//! assert_eq!(recovered.ok(), Some(0));
 //! ```
 //!
 //! ### Explicit Context

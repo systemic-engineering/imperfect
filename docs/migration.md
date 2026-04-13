@@ -2,6 +2,19 @@
 
 Moving from `Result<T, E>` to `Imperfect<T, E, L>`. You don't have to convert everything at once.
 
+## The table
+
+| Result           | terni                       |                |
+|------------------|-----------------------------|----------------|
+| `Ok(v)`          | `Imperfect::Success(v)`     | same           |
+| `Err(e)`         | `Imperfect::Failure(e, l)`  | same           |
+|                  | `Imperfect::Partial(v, l)`  | **new**        |
+|                  | `Imperfect::Failure(e, l)`  | **honest**     |
+
+The two empty cells on the left are the argument. `Result` doesn't have a row for partial success or honest failure. That's why terni exists.
+
+`Failure(E, L)` carries accumulated loss — the cost of getting here. `Result::Err` carries only the error. The loss is information you can't recover from the error alone: how much work happened before the failure, how close you were, what was already spent.
+
 ## Step 1: Choose a Loss type
 
 What does "partial success" mean in your domain?
@@ -119,5 +132,36 @@ assert!(from_option.is_ok());
 Convert at the boundaries. Functions that return `Imperfect` can be called by code that only understands `Result` — just `.into()` or use `Result::from()`. Loss is discarded on that conversion, but it's explicit.
 
 You don't need to convert your entire codebase. Convert the functions where partial success matters — where you're currently discarding information by collapsing to `Ok` or `Err`. The rest can stay as `Result`.
+
+## Step 5: Recovery
+
+`Result` has `.unwrap_or()` and `.unwrap_or_else()`. So does `Imperfect` — but recovery from `Failure` always produces `Partial`, never `Success`. The failure happened. The cost is real.
+
+```rust
+use terni::{Imperfect, ConvergenceLoss};
+
+// unwrap_or: static default
+let failed: Imperfect<i32, String, ConvergenceLoss> =
+    Imperfect::Failure("gone".into(), ConvergenceLoss::new(5));
+let recovered = failed.unwrap_or(0);
+assert!(recovered.is_partial());  // never Success
+assert_eq!(recovered.ok(), Some(0));
+assert_eq!(recovered.loss().steps(), 5);  // cost survives
+
+// recover: full control
+let failed: Imperfect<i32, String, ConvergenceLoss> =
+    Imperfect::Failure("gone".into(), ConvergenceLoss::new(3));
+let recovered = failed.recover(|_e| Imperfect::Success(42));
+assert!(recovered.is_partial());  // recovery from Failure → always Partial
+assert_eq!(recovered.ok(), Some(42));
+assert_eq!(recovered.loss().steps(), 3);
+
+// err_with_loss: extract both error and accumulated loss
+let failed: Imperfect<i32, String, ConvergenceLoss> =
+    Imperfect::Failure("gone".into(), ConvergenceLoss::new(7));
+let (error, loss) = failed.err_with_loss().unwrap();
+assert_eq!(error, "gone");
+assert_eq!(loss.steps(), 7);
+```
 
 [Back to README](../README.md) · [Loss types →](loss-types.md)
