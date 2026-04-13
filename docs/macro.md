@@ -1,6 +1,16 @@
 # The `eh!` Macro
 
-Block macro for implicit loss accumulation with `?`.
+The block that tries extra hard. Roll+Loss.
+
+**10+** Success — zero loss, clean hit.
+**7-9** Partial — you get the value, but something was lost. The loss is measured.
+**6-** Failure — the MC makes a move. The cost carries.
+
+The design descends from PbtA (Powered by the Apocalypse). The 7-9 result — success with complications — is the design innovation that PbtA contributed to game design. `eh!` encodes that structure in a proc macro.
+
+`eh` — the shrug. For the engineer who's been here before.
+`eh` — extra hard. For the engineer reading the docs.
+`eh!` — the proc macro. For the compiler.
 
 ## Usage
 

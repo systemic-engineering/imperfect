@@ -115,7 +115,11 @@ assert!(result.is_partial());
 
 ## `eh?`
 
-The question. For real this time.
+The `eh!` macro tries extra hard to recover meaning at the boundary. Roll+Loss.
+
+10+ **Success.** 7-9 **Partial** with a cost. 6- **Failure.**
+
+For real this time.
 
 ```rust
 use terni::{eh, Imperfect, ConvergenceLoss};
