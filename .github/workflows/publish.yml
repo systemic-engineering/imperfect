@@ -6,7 +6,7 @@ on:
 
 jobs:
   publish-imperfect:
-    name: Publish imperfect to crates.io
+    name: Publish terni to crates.io
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,14 +16,14 @@ jobs:
       - name: Verify version matches tag
         run: |
           TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-          CARGO_VERSION=$(nix develop -c cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "imperfect") | .version')
+          CARGO_VERSION=$(nix develop -c cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "terni") | .version')
           if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
             echo "Tag version ($TAG_VERSION) does not match Cargo.toml version ($CARGO_VERSION)"
             exit 1
           fi
 
-      - name: Publish imperfect
-        run: nix develop -c cargo publish -p imperfect
+      - name: Publish terni
+        run: nix develop -c cargo publish -p terni
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
