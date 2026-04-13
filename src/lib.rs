@@ -2130,8 +2130,7 @@ mod tests {
 
     #[test]
     fn string_in_imperfect() {
-        let i: Imperfect<u32, &str, String> =
-            Imperfect::Partial(42, "precision lost".into());
+        let i: Imperfect<u32, &str, String> = Imperfect::Partial(42, "precision lost".into());
         assert_eq!(i.loss(), "precision lost");
     }
 
@@ -2293,8 +2292,7 @@ mod tests {
     #[test]
     fn tuple_in_imperfect() {
         // Composite loss: count + magnitude
-        let i: Imperfect<&str, &str, (usize, f64)> =
-            Imperfect::Partial("value", (2, 0.5));
+        let i: Imperfect<&str, &str, (usize, f64)> = Imperfect::Partial("value", (2, 0.5));
         let loss = i.loss();
         assert_eq!(loss.0, 2);
         assert_eq!(loss.1, 0.5);

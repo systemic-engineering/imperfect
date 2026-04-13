@@ -8,6 +8,8 @@ Ternary error handling for Rust. Because computation is not binary.
 [![docs.rs](https://docs.rs/terni/badge.svg)](https://docs.rs/terni)
 [![license](https://img.shields.io/crates/l/terni.svg)](https://github.com/systemic-engineering/prism/blob/main/imperfect/LICENSE)
 
+**The cost of honesty is 0.65 nanoseconds per step, only when there's something to be honest about. Otherwise: zero.**
+
 ## `eh`
 
 The type. Three states instead of two.
@@ -46,6 +48,21 @@ Three loss types ship with the crate:
 |                  | `Imperfect::Failure(e, l)`  | **honest**     |
 
 The two empty cells on the left are the argument. `Result` doesn't have a row for partial success or honest failure. That's why terni exists.
+
+### Constructors
+
+Four ways to build an `Imperfect`:
+
+```rust
+use terni::{Imperfect, ConvergenceLoss};
+
+let a = Imperfect::<i32, String, ConvergenceLoss>::success(42);
+let b = Imperfect::<i32, String, ConvergenceLoss>::partial(42, ConvergenceLoss::new(3));
+let c = Imperfect::<i32, String, ConvergenceLoss>::failure("gone".into());
+let d = Imperfect::<i32, String, ConvergenceLoss>::failure_with_loss("gone".into(), ConvergenceLoss::new(5));
+```
+
+`.failure()` carries zero loss. `.failure_with_loss()` carries accumulated loss from prior steps.
 
 [Loss types in depth →](docs/loss-types.md) · [Full migration guide →](docs/migration.md)
 
@@ -104,11 +121,13 @@ Block macro for implicit loss accumulation — `eh! { }` will do what `Eh` does 
 
 ## More
 
-- [Loss types](docs/loss-types.md) — the `Loss` trait, shipped types, custom implementations
+- [Loss types](docs/loss-types.md) — the `Loss` trait, shipped types, stdlib impls, custom implementations
 - [Pipeline](docs/pipeline.md) — `.eh()` bind in depth, loss accumulation rules
 - [Context](docs/context.md) — `Eh` struct, mixing `Imperfect` and `Result`
 - [Terni-functor](docs/terni-functor.md) — the math behind `.eh()`
 - [Migration](docs/migration.md) — moving from `Result<T, E>` to `Imperfect<T, E, L>`
+- [Flight recorder](docs/flight-recorder.md) — `Failure(E, L)` as production telemetry, not stack traces
+- [Benchmarks](docs/benchmarks.md) — 0.65 ns per honest step, zero on the success path
 
 ## License
 

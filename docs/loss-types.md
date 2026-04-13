@@ -103,6 +103,48 @@ assert_eq!(result.loss().runner_up_gap(), 0.3);
 **`zero()`** — 0.0 entropy, 1.0 gap. One model at 100%.
 **`total()`** — infinite entropy, 0.0 gap. Maximum uncertainty.
 
+## Standard library Loss implementations
+
+`Loss` is implemented for common standard library types out of the box:
+
+### Numeric losses
+
+| Type | `combine` | `zero()` | `total()` |
+|------|-----------|----------|-----------|
+| `usize` | saturating add | `0` | `usize::MAX` |
+| `u64` | saturating add | `0` | `u64::MAX` |
+| `f64` | addition (IEEE) | `0.0` | `f64::INFINITY` |
+
+### Collection losses
+
+Track *what* was lost, not just *how much*.
+
+| Type | `combine` | `zero()` / `total()` |
+|------|-----------|----------------------|
+| `Vec<T: Clone>` | append | empty |
+| `HashSet<T: Eq + Hash + Clone>` | union | empty |
+| `BTreeSet<T: Ord + Clone>` | union | empty |
+| `String` | join with `"; "` | empty |
+
+> **Limitation:** Collections have no natural absorbing element. `total()` returns the same as `zero()` (empty). The monoid identity and associativity laws hold, but the absorbing property does not. If you need absorbing semantics, use a numeric loss type.
+
+### Tuple combinator
+
+`(A, B)` where both `A: Loss` and `B: Loss` composes two loss dimensions independently. Each component combines, zeros, and totals on its own.
+
+```rust
+use terni::{Imperfect, ConvergenceLoss, RoutingLoss};
+
+type PipelineLoss = (ConvergenceLoss, RoutingLoss);
+
+let result: Imperfect<i32, String, PipelineLoss> = Imperfect::Partial(
+    42,
+    (ConvergenceLoss::new(3), RoutingLoss::new(0.5, 0.2)),
+);
+```
+
+See the [flight recorder guide](flight-recorder.md) for more composition patterns.
+
 ## Implementing your own Loss type
 
 Implement `Loss` for any domain-specific measurement. The only requirements: `Clone + Default`, the four trait methods, and `combine` must be associative.

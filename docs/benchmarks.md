@@ -66,7 +66,7 @@ Same pattern. Success tracks Result. Partial adds the loss-preservation cost.
 | All Success | 648 ps |
 | All Partial | 6.06 ns |
 
-The `EhContext` struct adds zero overhead beyond the loss accumulation itself. Same performance characteristics as raw `eh` chains. The context is a zero-cost coordinator.
+The `Eh` struct adds zero overhead beyond the loss accumulation itself. Same performance characteristics as raw `eh` chains. The context is a zero-cost coordinator.
 
 ### Loss type combination
 
@@ -83,3 +83,5 @@ ConvergenceLoss and RoutingLoss combine in under 1 ns. They're scalar max operat
 Result is a two-state type that optimizes for the fast path by *deleting the middle*. Imperfect is a three-state type that preserves it. The benchmarks say: preservation is free until there's something to preserve. Then it costs 0.65 ns per step.
 
 That's not a tax. That's a price. And it buys you the flight recorder that Result said you couldn't have.
+
+[Back to README](../README.md) · [Flight recorder →](flight-recorder.md) · [Pipeline →](pipeline.md)

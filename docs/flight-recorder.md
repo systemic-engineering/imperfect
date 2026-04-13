@@ -126,3 +126,5 @@ and "Always on." Result doesn't have answers for these because Result can't
 represent them. The type doesn't have a place to put the information.
 
 Those empty cells are why this crate exists.
+
+[Back to README](../README.md) · [Loss types →](loss-types.md) · [Benchmarks →](benchmarks.md)

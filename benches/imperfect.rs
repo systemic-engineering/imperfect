@@ -1,3 +1,4 @@
+#![allow(clippy::bind_instead_of_map)]
 //! Benchmarks for terni — the cost of honesty, measured in nanoseconds.
 //!
 //! The thesis: `.eh()` on the Success path is zero-cost compared to Result's
@@ -74,8 +75,7 @@ fn bench_eh_pipeline(c: &mut Criterion) {
     // 10 chained .eh() on Success — should be within noise of Result
     group.bench_function("Imperfect::eh_success", |b| {
         b.iter(|| {
-            let i: Imperfect<i32, String, ConvergenceLoss> =
-                Imperfect::Success(black_box(1));
+            let i: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Success(black_box(1));
             i.eh(|x| Imperfect::Success(x + 1))
                 .eh(|x| Imperfect::Success(x + 1))
                 .eh(|x| Imperfect::Success(x + 1))
@@ -173,8 +173,7 @@ fn bench_eh_partial(c: &mut Criterion) {
     // Mixed: starts Success, hits Partial midway. Loss appears at step 5.
     group.bench_function("Imperfect::eh_mixed_partial_at_5", |b| {
         b.iter(|| {
-            let i: Imperfect<i32, String, ConvergenceLoss> =
-                Imperfect::Success(black_box(1));
+            let i: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Success(black_box(1));
             i.eh(|x| Imperfect::Success(x + 1))
                 .eh(|x| Imperfect::Success(x + 1))
                 .eh(|x| Imperfect::Success(x + 1))
@@ -216,8 +215,7 @@ fn bench_recover(c: &mut Criterion) {
     // Recovery from success (passthrough — no work)
     group.bench_function("Imperfect::recover_noop", |b| {
         b.iter(|| {
-            let i: Imperfect<i32, String, ConvergenceLoss> =
-                Imperfect::Success(black_box(42));
+            let i: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Success(black_box(42));
             i.recover(|_e| Imperfect::Success(0))
         })
     });
@@ -241,8 +239,7 @@ fn bench_map(c: &mut Criterion) {
 
     group.bench_function("Imperfect::map_success", |b| {
         b.iter(|| {
-            let i: Imperfect<i32, String, ConvergenceLoss> =
-                Imperfect::Success(black_box(42));
+            let i: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Success(black_box(42));
             i.map(|x| x * 2)
         })
     });
@@ -275,10 +272,8 @@ fn bench_compose(c: &mut Criterion) {
 
     group.bench_function("success_then_success", |b| {
         b.iter(|| {
-            let a: Imperfect<i32, String, ConvergenceLoss> =
-                Imperfect::Success(black_box(1));
-            let next: Imperfect<i32, String, ConvergenceLoss> =
-                Imperfect::Success(black_box(2));
+            let a: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Success(black_box(1));
+            let next: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Success(black_box(2));
             a.compose(next)
         })
     });
@@ -297,8 +292,7 @@ fn bench_compose(c: &mut Criterion) {
         b.iter(|| {
             let a: Imperfect<i32, String, ConvergenceLoss> =
                 Imperfect::Failure(black_box(String::from("nope")), ConvergenceLoss::new(1));
-            let next: Imperfect<i32, String, ConvergenceLoss> =
-                Imperfect::Success(black_box(2));
+            let next: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Success(black_box(2));
             a.compose(next)
         })
     });
