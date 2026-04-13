@@ -151,6 +151,30 @@ fn propagate_loss<T, E, L: Loss>(loss: L, next: Imperfect<T, E, L>) -> Imperfect
 }
 
 impl<T, E, L: Loss> Imperfect<T, E, L> {
+    // --- Constructors ---
+
+    /// Construct a success. Alias for `Success(value)`.
+    pub fn success(value: T) -> Self {
+        Imperfect::Success(value)
+    }
+
+    /// Construct a partial result with measured loss. Alias for `Partial(value, loss)`.
+    pub fn partial(value: T, loss: L) -> Self {
+        Imperfect::Partial(value, loss)
+    }
+
+    /// Construct a failure with zero accumulated loss.
+    pub fn failure(error: E) -> Self {
+        Imperfect::Failure(error, L::zero())
+    }
+
+    /// Construct a failure carrying accumulated loss from prior steps.
+    pub fn failure_with_loss(error: E, loss: L) -> Self {
+        Imperfect::Failure(error, loss)
+    }
+
+    // --- Queries ---
+
     /// Returns `true` if the result has a value (Success or Partial).
     pub fn is_ok(&self) -> bool {
         !self.is_err()
