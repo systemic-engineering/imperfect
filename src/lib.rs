@@ -2363,7 +2363,10 @@ mod tests {
     #[test]
     fn constructor_failure() {
         let i: Imperfect<u32, String, ConvergenceLoss> = Imperfect::failure("gone".into());
-        assert_eq!(i, Imperfect::Failure("gone".into(), ConvergenceLoss::new(0)));
+        assert_eq!(
+            i,
+            Imperfect::Failure("gone".into(), ConvergenceLoss::new(0))
+        );
         assert!(i.is_err());
         assert_eq!(i.loss().steps(), 0);
     }
@@ -2372,7 +2375,10 @@ mod tests {
     fn constructor_failure_with_loss() {
         let i: Imperfect<u32, String, ConvergenceLoss> =
             Imperfect::failure_with_loss("gone".into(), ConvergenceLoss::new(5));
-        assert_eq!(i, Imperfect::Failure("gone".into(), ConvergenceLoss::new(5)));
+        assert_eq!(
+            i,
+            Imperfect::Failure("gone".into(), ConvergenceLoss::new(5))
+        );
         assert!(i.is_err());
         assert_eq!(i.loss().steps(), 5);
     }
