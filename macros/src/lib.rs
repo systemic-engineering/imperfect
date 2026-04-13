@@ -216,11 +216,13 @@ pub fn eh(input: TokenStream) -> TokenStream {
         Some(recover) => {
             let error_ident = &recover.error_ident;
             let recover_stmts = &recover.body.stmts;
-            // TODO: implement proper recovery — currently drops accumulated loss
+            // Build a Failure with accumulated loss, then use unwrap_or_else to recover.
+            // This constrains E through failure_with_loss and unwrap_or_else signatures,
+            // and preserves accumulated loss from the try body into the Partial result.
             quote! {
                 ::core::result::Result::Err(__eh_err) => {
-                    let _ = __eh_ctx.into_loss();
-                    ::terni::Imperfect::failure_with_loss(__eh_err, ::terni::Loss::zero())
+                    let __eh_loss = __eh_ctx.into_loss().unwrap_or_else(::terni::Loss::zero);
+                    ::terni::Imperfect::failure_with_loss(__eh_err, __eh_loss)
                         .unwrap_or_else(|#error_ident| {
                             #(#recover_stmts)*
                         })
