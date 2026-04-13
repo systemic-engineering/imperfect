@@ -2604,5 +2604,72 @@ mod tests {
             assert_eq!(result.loss().steps(), 1);
             assert_eq!(result.ok(), Some(42));
         }
+
+        #[test]
+        fn nested_eh_blocks() {
+            let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
+                let inner: Imperfect<i32, String, ConvergenceLoss> = eh! {
+                    let x = Imperfect::<i32, String, ConvergenceLoss>::Partial(10, ConvergenceLoss::new(2))?;
+                    x + 1
+                };
+                // inner is Partial(11, ConvergenceLoss(2))
+                let v = inner?;
+                v + 5
+            };
+            assert!(result.is_partial());
+            assert_eq!(result.loss().steps(), 2);
+            assert_eq!(result.ok(), Some(16));
+        }
+
+        #[test]
+        fn multiple_try_on_different_lines() {
+            let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
+                let a = Imperfect::<i32, String, ConvergenceLoss>::Partial(1, ConvergenceLoss::new(1))?;
+                let b = Imperfect::<i32, String, ConvergenceLoss>::Partial(2, ConvergenceLoss::new(3))?;
+                let c = Imperfect::<i32, String, ConvergenceLoss>::Partial(3, ConvergenceLoss::new(7))?;
+                a + b + c
+            };
+            assert!(result.is_partial());
+            // ConvergenceLoss combines with max: max(1, 3, 7) = 7
+            assert_eq!(result.loss().steps(), 7);
+            assert_eq!(result.ok(), Some(6));
+        }
+
+        #[test]
+        fn failure_on_first_try_no_prior_loss() {
+            let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
+                let _a = Imperfect::<i32, String, ConvergenceLoss>::Failure(
+                    "first".into(),
+                    ConvergenceLoss::new(0),
+                )?;
+                42
+            };
+            assert!(result.is_err());
+            // No prior accumulated loss — failure's own loss (0) is used
+            assert_eq!(result.loss().steps(), 0);
+            assert_eq!(result.err(), Some("first".to_string()));
+        }
+
+        #[test]
+        fn try_inside_closure_within_eh() {
+            let result: Imperfect<Vec<i32>, String, ConvergenceLoss> = eh! {
+                let items = vec![1, 2, 3];
+                let mapped: Result<Vec<i32>, String> = items
+                    .into_iter()
+                    .map(|x| {
+                        let v = Imperfect::<i32, String, ConvergenceLoss>::Partial(
+                            x * 2,
+                            ConvergenceLoss::new(1),
+                        )?;
+                        Ok(v)
+                    })
+                    .collect();
+                let vals = mapped?;
+                vals
+            };
+            // The closure's ? operations accumulate loss into __eh_ctx
+            assert!(result.is_partial());
+            assert_eq!(result.ok(), Some(vec![2, 4, 6]));
+        }
     }
 }

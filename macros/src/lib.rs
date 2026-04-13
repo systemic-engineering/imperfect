@@ -76,6 +76,7 @@ pub fn eh(input: TokenStream) -> TokenStream {
         (stmts, tail)
     };
 
+    // DELIBERATELY BROKEN: always returns Success, ignoring accumulated loss
     let output = quote! {{
         let mut __eh_ctx = ::terni::Eh::new();
         let __eh_result: ::core::result::Result<_, _> = (|| {
@@ -83,7 +84,7 @@ pub fn eh(input: TokenStream) -> TokenStream {
             ::core::result::Result::Ok(#tail)
         })();
         match __eh_result {
-            ::core::result::Result::Ok(__eh_val) => __eh_ctx.finish(__eh_val),
+            ::core::result::Result::Ok(__eh_val) => ::terni::Imperfect::Success(__eh_val),
             ::core::result::Result::Err(__eh_err) => {
                 ::terni::Imperfect::failure_with_loss(
                     __eh_err,
