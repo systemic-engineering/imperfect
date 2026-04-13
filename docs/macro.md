@@ -75,6 +75,48 @@ fn outer() -> Imperfect<i32, String, ConvergenceLoss> {
 
 The inner block produces `Partial(11, ConvergenceLoss(2))`. The outer block's `?` extracts the value and accumulates the inner loss.
 
+## Recovery
+
+Add a `recover` branch to handle failures gracefully. If any `?` in the body hits `Failure`, the recovery closure runs with the error. The accumulated loss from the try body carries into the recovery. The result is always `Partial` — the failure happened.
+
+```rust
+use terni::{eh, Imperfect, ConvergenceLoss};
+
+fn resilient(input: i32) -> Imperfect<i32, String, ConvergenceLoss> {
+    eh! {
+        let a = step_one(input)?;
+        let b = step_two(a)?;
+        b + 1
+
+        recover |e| {
+            eprintln!("failed: {}", e);
+            0  // fallback value
+        }
+    }
+}
+```
+
+Without `recover`, a `Failure` propagates as `Failure(error, accumulated_loss)`. With `recover`, it becomes `Partial(recovered_value, accumulated_loss)`.
+
+The recovery closure receives the error value. Use it or ignore it:
+
+```rust
+use terni::{eh, Imperfect, ConvergenceLoss};
+
+fn with_error_info() -> Imperfect<String, String, ConvergenceLoss> {
+    eh! {
+        let val = might_fail()?;
+        format!("got: {}", val)
+
+        recover |e| {
+            format!("recovered from: {}", e)
+        }
+    }
+}
+```
+
+If no failure occurs, the `recover` branch is never executed and the result is `Success` or `Partial` as usual.
+
 ## How It Works
 
 The `eh!` proc macro rewrites the block:
@@ -84,6 +126,7 @@ The `eh!` proc macro rewrites the block:
 3. Rewrites every `expr?` to `IntoEh::into_eh(expr, &mut __eh_ctx)?`
 4. Wraps the final expression in `Ok(...)`
 5. Matches the closure result: `Ok` calls `finish()`, `Err` calls `failure_with_loss()`
+6. With `recover`: `Err` builds a `Failure`, then calls `unwrap_or_else()` with the recovery closure — always producing `Partial`
 
 ## Limitations
 

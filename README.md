@@ -150,6 +150,29 @@ Plain `?` on `Imperfect`. Loss accumulates implicitly. No context variable. No `
 
 The macro rewrites `expr?` to route through an `IntoEh` trait, which handles both `Imperfect` (accumulates loss) and `Result` (passes through). Mix them freely inside an `eh!` block.
 
+Add a `recover` branch to handle failures:
+
+```rust
+use terni::{eh, Imperfect, ConvergenceLoss};
+
+fn resilient(input: i32) -> Imperfect<i32, String, ConvergenceLoss> {
+    eh! {
+        let a = step_one(input)?;
+        let b = step_two(a)?;
+        b + 1
+
+        recover |e| {
+            eprintln!("failed: {}", e);
+            0  // fallback value
+        }
+    }
+}
+# fn step_one(x: i32) -> Imperfect<i32, String, ConvergenceLoss> { Imperfect::Success(x) }
+# fn step_two(x: i32) -> Imperfect<i32, String, ConvergenceLoss> { Imperfect::Success(x) }
+```
+
+If any `?` hits `Failure`, the recovery closure runs. The accumulated loss carries through. The result is always `Partial` — the failure happened, but you recovered a value. Without `recover`, failures propagate as before.
+
 `return` inside `eh!` returns from the block, not the enclosing function. Use `?` for early exit.
 
 [Macro guide ->](docs/macro.md)
