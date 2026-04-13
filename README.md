@@ -129,6 +129,10 @@ Block macro for implicit loss accumulation — `eh! { }` will do what `Eh` does 
 - [Flight recorder](docs/flight-recorder.md) — `Failure(E, L)` as production telemetry, not stack traces
 - [Benchmarks](docs/benchmarks.md) — 0.65 ns per honest step, zero on the success path
 
+## See it in action
+
+- **[prism-core](https://github.com/systemic-engineering/prism/tree/main/core)** — spectral optics pipeline. Uses `Imperfect` as the value carrier inside `Beam`, with a custom `ScalarLoss` type for eigenvalue decomposition. 182 tests.
+
 ## License
 
 Apache-2.0

@@ -171,4 +171,57 @@ assert_eq!(a, b);
 assert_eq!(b, c);
 ```
 
+## Real-world: prism-core
+
+prism-core's `Beam` trait uses `Imperfect` as its value carrier. Every beam carries an `Imperfect<Out, E, L>` internally, and the semifunctor `smap` maps over it using `.eh()`-style closures that return `Imperfect`.
+
+From [`core/src/beam.rs`](https://github.com/systemic-engineering/prism/blob/main/core/src/beam.rs) — the `smap` method on the `Beam` trait:
+
+```rust
+fn smap<T>(
+    self,
+    f: impl FnOnce(&Self::Out) -> Imperfect<T, Self::Error, Self::Loss>,
+) -> Self::Tick<T, Self::Error> {
+    let imp = match self.result() {
+        Imperfect::Success(v) | Imperfect::Partial(v, _) => f(v),
+        Imperfect::Failure(_, _) => panic!("smap on Err beam"),
+    };
+    self.tick(imp)
+}
+```
+
+And how it's used in practice — Traversal's split operation collapses a multi-element result:
+
+```rust
+let focused = traversal.focus(seed(vec![1, 2, 3]));
+let first = focused.smap(|v| Imperfect::success(v.first().cloned().unwrap_or(0)));
+assert_eq!(first.result().ok(), Some(&2));
+```
+
+The `PureBeam` constructors use terni's constructor methods directly:
+
+```rust
+pub fn ok(input: In, output: Out) -> Self {
+    Self { input, imperfect: Imperfect::success(output) }
+}
+pub fn partial(input: In, output: Out, loss: L) -> Self {
+    Self { input, imperfect: Imperfect::partial(output, loss) }
+}
+pub fn err(input: In, error: E) -> Self {
+    Self { input, imperfect: Imperfect::failure(error) }
+}
+```
+
+Loss propagation through the beam pipeline uses the same accumulation rules as `.eh()`:
+
+```rust
+fn propagate<T, E, L: Loss>(loss: L, next: Imperfect<T, E, L>) -> Imperfect<T, E, L> {
+    match next {
+        Imperfect::Success(v) => Imperfect::partial(v, loss),
+        Imperfect::Partial(v, loss2) => Imperfect::partial(v, loss.combine(loss2)),
+        Imperfect::Failure(e, loss2) => Imperfect::failure_with_loss(e, loss.combine(loss2)),
+    }
+}
+```
+
 [Back to README](../README.md) · [Context →](context.md)

@@ -209,4 +209,30 @@ assert_eq!(result.ok(), Some(10));
 assert_eq!(result.loss().steps(), 2);  // the cost of getting here survives
 ```
 
+## Why prism-core doesn't use Eh
+
+prism-core's `Beam` trait IS its own composition context. The `tick` primitive destructures the beam's `Imperfect` to extract inner values for building new beam structs — a pattern that requires direct match arms rather than `Eh`'s `Result`-based extraction.
+
+From [`core/src/beam.rs`](https://github.com/systemic-engineering/prism/blob/main/core/src/beam.rs):
+
+```rust
+fn tick<T, NE>(self, next: Imperfect<T, NE, L>) -> PureBeam<Out, T, NE, L> {
+    match self.imperfect {
+        Imperfect::Failure(_, _) => panic!("tick on Err beam — check is_ok() first"),
+        Imperfect::Success(old_out) => PureBeam {
+            input: old_out,
+            imperfect: next,
+        },
+        Imperfect::Partial(old_out, loss) => PureBeam {
+            input: old_out,
+            imperfect: propagate(loss, next),
+        },
+    }
+}
+```
+
+The beam needs `old_out` to construct the new struct's `input` field. `Eh.eh()` would discard that inner value into a `Result<T, E>`, losing the structural information beam needs.
+
+This is the right pattern: `Eh` is for code that consumes `Imperfect` values and produces a final result. `Beam` is for code that builds new `Imperfect` values from old ones while carrying structural context. Different layers, different tools.
+
 [Back to README](../README.md) · [Terni-functor →](terni-functor.md)

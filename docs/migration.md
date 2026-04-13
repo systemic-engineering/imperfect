@@ -166,4 +166,40 @@ assert_eq!(error, "gone");
 assert_eq!(loss.steps(), 7);
 ```
 
+## Case study: prism-core
+
+prism-core migrated from `ShannonLoss` (a former terni type) to a local `ScalarLoss` when terni removed `ShannonLoss` upstream. The migration also replaced manual enum variant constructors with terni's constructor methods.
+
+**Before:**
+
+```rust
+// ShannonLoss from terni (removed upstream)
+use terni::ShannonLoss;
+
+Imperfect::Success(output)
+Imperfect::Partial(output, ShannonLoss::new(bits))
+Imperfect::Failure(error, ShannonLoss::new(0.0))
+```
+
+**After:**
+
+```rust
+// ScalarLoss — core's own Loss impl
+use prism_core::ScalarLoss;
+
+Imperfect::success(output)
+Imperfect::partial(output, ScalarLoss::new(bits))
+Imperfect::failure(error)  // zero loss by default
+```
+
+Key decisions in the migration:
+
+1. **Own the loss type.** When the upstream type changed, core defined `ScalarLoss` locally — a 39-line file implementing the `Loss` monoid with additive `combine`. No external dependency for a domain-specific measurement.
+
+2. **Constructor methods over enum variants.** `Imperfect::failure(e)` replaces `Imperfect::Failure(e, L::zero())` — the zero loss is the common case and shouldn't require spelling out. `Imperfect::failure_with_loss(e, l)` for the rare case where accumulated loss needs explicit attachment.
+
+3. **Gradual.** The `Beam` trait's `tick` primitive still pattern-matches on `Imperfect` variants directly — because it needs to destructure the inner values to build new beam structs. The refactor targeted constructors and leaf code, not the pipeline primitive.
+
+Total diff: 6 files changed, 27 insertions, 27 deletions. All 182 tests pass unchanged.
+
 [Back to README](../README.md) · [Loss types →](loss-types.md)

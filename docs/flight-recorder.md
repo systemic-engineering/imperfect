@@ -127,4 +127,44 @@ represent them. The type doesn't have a place to put the information.
 
 Those empty cells are why this crate exists.
 
+## Real-world: prism-core's ScalarLoss
+
+prism-core implements its own `Loss` type — [`ScalarLoss`](https://github.com/systemic-engineering/prism/blob/main/core/src/scalar_loss.rs) — for eigenvalue decomposition. When a spectral projection zeroes out eigenvalues below a precision threshold, the magnitude of what was discarded IS the loss. This is the flight recorder in practice: the loss tells you how much signal was thrown away at each stage of a spectral pipeline.
+
+From `core/src/scalar_loss.rs`:
+
+```rust
+/// A scalar information loss measured in bits.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct ScalarLoss(pub f64);
+
+impl Loss for ScalarLoss {
+    fn zero() -> Self { ScalarLoss(0.0) }
+    fn total() -> Self { ScalarLoss(f64::INFINITY) }
+    fn is_zero(&self) -> bool { self.0 == 0.0 }
+    fn combine(self, other: Self) -> Self { ScalarLoss(self.0 + other.0) }
+}
+```
+
+The `combine` is addition — scalar losses accumulate linearly. `total()` is infinity, acting as a proper absorbing element.
+
+In the `Transport` trait (the bundle tower's parallel transport operation), the holonomy IS the loss — comprehension always costs something:
+
+```rust
+impl Transport for TestBundle {
+    type Holonomy = ScalarLoss;
+    fn transport(&self, state: &[f64; 4]) -> Imperfect<[f64; 4], Infallible, ScalarLoss> {
+        let compressed = [state[0], state[1], 0.0, 0.0];
+        let loss = state[2].abs() + state[3].abs();
+        if loss == 0.0 {
+            Imperfect::success(compressed)
+        } else {
+            Imperfect::partial(compressed, ScalarLoss::new(loss))
+        }
+    }
+}
+```
+
+The two zeroed-out dimensions are measured. The flight recorder captures exactly what was discarded, in bits. Downstream consumers see `Partial` and know: a value exists, but it cost something. The loss says how much.
+
 [Back to README](../README.md) · [Loss types →](loss-types.md) · [Benchmarks →](benchmarks.md)
