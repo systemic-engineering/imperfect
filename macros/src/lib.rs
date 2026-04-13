@@ -3,10 +3,10 @@
 //! Provides the `eh!` block macro for implicit loss accumulation with `?`.
 
 use proc_macro::TokenStream;
+use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use syn::visit_mut::{self, VisitMut};
 use syn::{parse_macro_input, ExprTry, Stmt};
-use proc_macro2::TokenStream as TokenStream2;
 
 struct EhRewriter;
 
@@ -15,8 +15,11 @@ impl VisitMut for EhRewriter {
         // First, visit nested expressions (handles chained ?)
         visit_mut::visit_expr_try_mut(self, node);
 
-        // DELIBERATELY BROKEN: not rewriting ? to use IntoEh
-        let _ = &node.expr;
+        // Rewrite: expr? → IntoEh::into_eh(expr, &mut __eh_ctx)?
+        let inner = &node.expr;
+        node.expr = Box::new(syn::parse_quote! {
+            ::terni::IntoEh::into_eh(#inner, &mut __eh_ctx)
+        });
     }
 }
 
