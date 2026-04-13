@@ -1532,4 +1532,146 @@ mod tests {
         assert!(i.is_err());
         assert!(i.loss().is_zero());
     }
+
+    // --- recover ---
+
+    #[test]
+    fn recover_success_passes_through() {
+        let i: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Success(42);
+        let result = i.recover(|_| Imperfect::Success(0));
+        assert_eq!(result, Imperfect::Success(42));
+    }
+
+    #[test]
+    fn recover_partial_passes_through() {
+        let i: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Partial(42, ConvergenceLoss(3));
+        let result = i.recover(|_| Imperfect::Success(0));
+        assert_eq!(result, Imperfect::Partial(42, ConvergenceLoss(3)));
+    }
+
+    #[test]
+    fn recover_failure_to_success_becomes_partial() {
+        let i: Imperfect<i32, String, ConvergenceLoss> =
+            Imperfect::Failure("oops".into(), ConvergenceLoss(5));
+        let result = i.recover(|_| Imperfect::Success(99));
+        // Recovery from failure never produces Success — the loss is real
+        assert_eq!(result, Imperfect::Partial(99, ConvergenceLoss(5)));
+    }
+
+    #[test]
+    fn recover_failure_to_partial_combines_losses() {
+        let i: Imperfect<i32, String, ConvergenceLoss> =
+            Imperfect::Failure("oops".into(), ConvergenceLoss(3));
+        let result = i.recover(|_| Imperfect::Partial(99, ConvergenceLoss(7)));
+        // max(3, 7) = 7
+        assert_eq!(result, Imperfect::Partial(99, ConvergenceLoss(7)));
+    }
+
+    #[test]
+    fn recover_failure_to_failure_combines_losses() {
+        let i: Imperfect<i32, String, ConvergenceLoss> =
+            Imperfect::Failure("first".into(), ConvergenceLoss(3));
+        let result = i.recover(|_| Imperfect::Failure("second".into(), ConvergenceLoss(7)));
+        assert_eq!(
+            result,
+            Imperfect::Failure("second".into(), ConvergenceLoss(7))
+        );
+    }
+
+    #[test]
+    fn recover_loss_accumulation_chain() {
+        // Partial(3) -> eh fails with loss(2) -> recover succeeds with loss(1)
+        let result = Imperfect::<i32, String, ConvergenceLoss>::Partial(1, ConvergenceLoss(3))
+            .eh(|_| Imperfect::Failure("broke".into(), ConvergenceLoss(2)))
+            .recover(|_| Imperfect::Partial(42, ConvergenceLoss(1)));
+        // After eh: Failure with max(3, 2) = 3
+        // After recover: Partial(42, max(3, 1)) = Partial(42, 3)
+        assert_eq!(result, Imperfect::Partial(42, ConvergenceLoss(3)));
+    }
+
+    // --- unwrap_or_else ---
+
+    #[test]
+    fn unwrap_or_else_success_passes_through() {
+        let i: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Success(42);
+        let result = i.unwrap_or_else(|_| 0);
+        assert_eq!(result, Imperfect::Success(42));
+    }
+
+    #[test]
+    fn unwrap_or_else_partial_passes_through() {
+        let i: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Partial(42, ConvergenceLoss(3));
+        let result = i.unwrap_or_else(|_| 0);
+        assert_eq!(result, Imperfect::Partial(42, ConvergenceLoss(3)));
+    }
+
+    #[test]
+    fn unwrap_or_else_failure_becomes_partial() {
+        let i: Imperfect<i32, String, ConvergenceLoss> =
+            Imperfect::Failure("oops".into(), ConvergenceLoss(5));
+        let result = i.unwrap_or_else(|e| e.len() as i32);
+        // Partial with the failure's loss
+        assert_eq!(result, Imperfect::Partial(4, ConvergenceLoss(5)));
+    }
+
+    // --- unwrap_or ---
+
+    #[test]
+    fn unwrap_or_success_passes_through() {
+        let i: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Success(42);
+        let result = i.unwrap_or(0);
+        assert_eq!(result, Imperfect::Success(42));
+    }
+
+    #[test]
+    fn unwrap_or_partial_passes_through() {
+        let i: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Partial(42, ConvergenceLoss(3));
+        let result = i.unwrap_or(0);
+        assert_eq!(result, Imperfect::Partial(42, ConvergenceLoss(3)));
+    }
+
+    #[test]
+    fn unwrap_or_failure_becomes_partial() {
+        let i: Imperfect<i32, String, ConvergenceLoss> =
+            Imperfect::Failure("oops".into(), ConvergenceLoss(5));
+        let result = i.unwrap_or(-1);
+        assert_eq!(result, Imperfect::Partial(-1, ConvergenceLoss(5)));
+    }
+
+    // --- pipeline integration ---
+
+    fn fetch(url: &str) -> Imperfect<String, String, ConvergenceLoss> {
+        if url == "good" {
+            Imperfect::Success("data".into())
+        } else {
+            Imperfect::Failure(format!("404: {}", url), ConvergenceLoss(2))
+        }
+    }
+
+    fn fetch_fallback(_url: &str) -> Imperfect<String, String, ConvergenceLoss> {
+        Imperfect::Partial("cached".into(), ConvergenceLoss(5))
+    }
+
+    fn process(data: String) -> Imperfect<String, String, ConvergenceLoss> {
+        Imperfect::Success(format!("processed:{}", data))
+    }
+
+    #[test]
+    fn pipeline_recover_then_eh() {
+        let result = fetch("bad").recover(|_| fetch_fallback("bad")).eh(process);
+        // fetch fails with loss(2)
+        // recover: fallback returns Partial("cached", 5) → combined: Partial("cached", max(2,5)=5)
+        // eh(process): Success wraps, but Partial carries loss → Partial("processed:cached", 5)
+        assert!(result.is_partial());
+        assert_eq!(result.clone().ok(), Some("processed:cached".into()));
+        assert_eq!(result.loss().steps(), 5);
+    }
+
+    #[test]
+    fn pipeline_success_skips_recover() {
+        let result = fetch("good")
+            .recover(|_| fetch_fallback("good"))
+            .eh(process);
+        assert_eq!(result, Imperfect::Success("processed:data".into()));
+    }
 }
