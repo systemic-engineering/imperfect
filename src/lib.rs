@@ -94,6 +94,10 @@
 #[cfg(feature = "macros")]
 pub use terni_macros::eh;
 
+// Allow the proc macro's generated code to use `::terni::` paths even
+// when expanded inside this crate's own tests.
+extern crate self as terni;
+
 /// A measure of what didn't survive a transformation.
 ///
 /// Loss forms a monoid: `zero()` is the identity element, `combine` is
@@ -2495,5 +2499,110 @@ mod tests {
         let loss = ctx.into_loss();
         assert!(loss.is_some());
         assert_eq!(loss.unwrap().steps(), 7);
+    }
+
+    // --- eh! macro tests ---
+
+    #[cfg(feature = "macros")]
+    mod eh_macro {
+        use crate::{eh, ConvergenceLoss, Imperfect};
+
+        #[test]
+        fn all_success_returns_success() {
+            let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
+                let a = Imperfect::<i32, String, ConvergenceLoss>::Success(1)?;
+                let b = Imperfect::<i32, String, ConvergenceLoss>::Success(a + 1)?;
+                b + 1
+            };
+            assert_eq!(result, Imperfect::Success(3));
+        }
+
+        #[test]
+        fn partial_accumulates_loss() {
+            let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
+                let a = Imperfect::<i32, String, ConvergenceLoss>::Success(1)?;
+                let b = Imperfect::<i32, String, ConvergenceLoss>::Partial(a + 1, ConvergenceLoss::new(3))?;
+                b + 1
+            };
+            // a=1, b=a+1=2, tail=b+1=3
+            assert!(result.is_partial());
+            assert_eq!(result.loss().steps(), 3);
+            assert_eq!(result.ok(), Some(3));
+        }
+
+        #[test]
+        fn multiple_partials_combine_loss() {
+            let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
+                let a = Imperfect::<i32, String, ConvergenceLoss>::Partial(1, ConvergenceLoss::new(2))?;
+                let b = Imperfect::<i32, String, ConvergenceLoss>::Partial(a + 1, ConvergenceLoss::new(5))?;
+                b + 1
+            };
+            // a=1, b=a+1=2, tail=b+1=3
+            assert!(result.is_partial());
+            // ConvergenceLoss combines with max
+            assert_eq!(result.loss().steps(), 5);
+            assert_eq!(result.ok(), Some(3));
+        }
+
+        #[test]
+        fn failure_short_circuits() {
+            let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
+                let _a = Imperfect::<i32, String, ConvergenceLoss>::Failure(
+                    "boom".into(),
+                    ConvergenceLoss::new(2),
+                )?;
+                // This line should never execute
+                unreachable!()
+            };
+            assert!(result.is_err());
+            assert_eq!(result.err(), Some("boom".to_string()));
+        }
+
+        #[test]
+        fn failure_after_partial_carries_accumulated_loss() {
+            let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
+                let a = Imperfect::<i32, String, ConvergenceLoss>::Partial(1, ConvergenceLoss::new(3))?;
+                let _b = Imperfect::<i32, String, ConvergenceLoss>::Failure(
+                    "fail".into(),
+                    ConvergenceLoss::new(7),
+                )?;
+                a
+            };
+            assert!(result.is_err());
+            assert_eq!(result.err(), Some("fail".to_string()));
+            // Loss = max(3, 7) = 7 (from Eh accumulation of partial + failure)
+        }
+
+        #[test]
+        fn mixed_imperfect_and_result() {
+            let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
+                let a = Imperfect::<i32, String, ConvergenceLoss>::Partial(10, ConvergenceLoss::new(2))?;
+                let b: i32 = Ok::<i32, String>(a + 5)?;
+                Imperfect::<i32, String, ConvergenceLoss>::Success(b)?
+            };
+            assert!(result.is_partial());
+            assert_eq!(result.loss().steps(), 2);
+            assert_eq!(result.ok(), Some(15));
+        }
+
+        #[test]
+        fn result_err_short_circuits() {
+            let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
+                let _a: i32 = Err::<i32, String>("nope".into())?;
+                unreachable!()
+            };
+            assert!(result.is_err());
+            assert_eq!(result.err(), Some("nope".to_string()));
+        }
+
+        #[test]
+        fn single_expression_no_semicolons() {
+            let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
+                Imperfect::<i32, String, ConvergenceLoss>::Partial(42, ConvergenceLoss::new(1))?
+            };
+            assert!(result.is_partial());
+            assert_eq!(result.loss().steps(), 1);
+            assert_eq!(result.ok(), Some(42));
+        }
     }
 }
