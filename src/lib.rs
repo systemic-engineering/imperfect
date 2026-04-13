@@ -2671,5 +2671,85 @@ mod tests {
             assert!(result.is_partial());
             assert_eq!(result.ok(), Some(vec![2, 4, 6]));
         }
+
+        #[test]
+        fn recover_basic_from_failure() {
+            let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
+                let a = Imperfect::<i32, String, ConvergenceLoss>::Failure(
+                    "boom".into(),
+                    ConvergenceLoss::new(3),
+                )?;
+                a + 1
+
+                recover |_e| {
+                    42
+                }
+            };
+            assert!(result.is_partial());
+            assert_eq!(result.loss().steps(), 3);
+            assert_eq!(result.ok(), Some(42));
+        }
+
+        #[test]
+        fn recover_accumulated_loss_from_partial_steps() {
+            let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
+                let a = Imperfect::<i32, String, ConvergenceLoss>::Partial(
+                    1,
+                    ConvergenceLoss::new(5),
+                )?;
+                let _b = Imperfect::<i32, String, ConvergenceLoss>::Failure(
+                    "boom".into(),
+                    ConvergenceLoss::new(3),
+                )?;
+                a
+
+                recover |_e| {
+                    99
+                }
+            };
+            assert!(result.is_partial());
+            // ConvergenceLoss combines with max: max(5, 3) = 5
+            assert_eq!(result.loss().steps(), 5);
+            assert_eq!(result.ok(), Some(99));
+        }
+
+        #[test]
+        fn recover_uses_error() {
+            let result: Imperfect<String, String, ConvergenceLoss> = eh! {
+                Imperfect::<String, String, ConvergenceLoss>::Failure(
+                    "the error".into(),
+                    ConvergenceLoss::new(0),
+                )?
+
+                recover |e| {
+                    format!("recovered from: {}", e)
+                }
+            };
+            assert!(result.is_partial());
+            assert_eq!(result.loss().steps(), 0);
+            assert_eq!(result.ok(), Some("recovered from: the error".to_string()));
+        }
+
+        #[test]
+        fn recover_not_triggered_on_success() {
+            let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
+                let a = Imperfect::<i32, String, ConvergenceLoss>::Success(42)?;
+                a
+
+                recover |_e| {
+                    0 // should never run
+                }
+            };
+            assert_eq!(result, Imperfect::Success(42));
+        }
+
+        #[test]
+        fn no_recover_unchanged_behavior() {
+            let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
+                let a = Imperfect::<i32, String, ConvergenceLoss>::Success(1)?;
+                a + 1
+            };
+            assert_eq!(result, Imperfect::Success(2));
+        }
     }
 }
