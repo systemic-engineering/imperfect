@@ -165,7 +165,7 @@ impl<T, E, L: Loss> Imperfect<T, E, L> {
 
     /// Construct a failure with zero accumulated loss.
     pub fn failure(error: E) -> Self {
-        Imperfect::Failure(error, L::total())
+        Imperfect::Failure(error, L::zero())
     }
 
     /// Construct a failure carrying accumulated loss from prior steps.
