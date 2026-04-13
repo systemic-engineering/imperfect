@@ -13,6 +13,8 @@ Moving from `Result<T, E>` to `Imperfect<T, E, L>`. You don't have to convert ev
 
 The two empty cells on the left are the argument. `Result` doesn't have a row for partial success or honest failure. That's why terni exists.
 
+Convenience constructors: `.success(v)`, `.partial(v, l)`, `.failure(e)` (zero loss), `.failure_with_loss(e, l)` (carries accumulated loss).
+
 `Failure(E, L)` carries accumulated loss — the cost of getting here. `Result::Err` carries only the error. The loss is information you can't recover from the error alone: how much work happened before the failure, how close you were, what was already spent.
 
 ## Step 1: Choose a Loss type
