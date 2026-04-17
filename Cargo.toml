@@ -14,7 +14,7 @@ default = ["macros"]
 macros = ["dep:terni-macros"]
 
 [dependencies]
-terni-macros = { path = "macros", optional = true }
+terni-macros = { version = "0.6", path = "macros", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

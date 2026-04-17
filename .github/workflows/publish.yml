@@ -5,9 +5,23 @@ on:
     types: [published]
 
 jobs:
+  publish-macros:
+    name: Publish terni-macros to crates.io
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: systemic-engineering/ci/actions/nix-setup@main
+
+      - name: Publish terni-macros
+        run: nix develop -c cargo publish -p terni-macros
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
   publish-imperfect:
     name: Publish terni to crates.io
     runs-on: ubuntu-latest
+    needs: [publish-macros]
     steps:
       - uses: actions/checkout@v4
 
@@ -29,7 +43,7 @@ jobs:
 
   notify-on-failure:
     if: failure()
-    needs: [publish-imperfect]
+    needs: [publish-macros, publish-imperfect]
     uses: systemic-engineering/ci/.github/workflows/notify-ntfy.yml@main
     with:
       repo: ${{ github.repository }}
