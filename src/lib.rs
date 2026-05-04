@@ -143,6 +143,83 @@ pub enum Imperfect<T, E, L: Loss> {
     Failure(E, L),
 }
 
+// --- Serde support (feature-gated) ---
+//
+// Custom Serialize/Deserialize to preserve three-state semantics.
+// Tuple variants with primitive inner types can't use serde's tag attributes,
+// so we implement the wire format by hand:
+//
+//   Success(T)    → {"status": "success", "value": T}
+//   Partial(T, L) → {"status": "partial", "value": T, "loss": L}
+//   Failure(E, L) → {"status": "failure", "error": E, "loss": L}
+
+#[cfg(feature = "serde")]
+impl<T, E, L> serde::Serialize for Imperfect<T, E, L>
+where
+    T: serde::Serialize,
+    E: serde::Serialize,
+    L: Loss + serde::Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+        match self {
+            Imperfect::Success(value) => {
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("status", "success")?;
+                map.serialize_entry("value", value)?;
+                map.end()
+            }
+            Imperfect::Partial(value, loss) => {
+                let mut map = serializer.serialize_map(Some(3))?;
+                map.serialize_entry("status", "partial")?;
+                map.serialize_entry("value", value)?;
+                map.serialize_entry("loss", loss)?;
+                map.end()
+            }
+            Imperfect::Failure(error, loss) => {
+                let mut map = serializer.serialize_map(Some(3))?;
+                map.serialize_entry("status", "failure")?;
+                map.serialize_entry("error", error)?;
+                map.serialize_entry("loss", loss)?;
+                map.end()
+            }
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, T, E, L> serde::Deserialize<'de> for Imperfect<T, E, L>
+where
+    T: serde::Deserialize<'de>,
+    E: serde::Deserialize<'de>,
+    L: Loss + serde::Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Helper enum that serde can derive-deserialize with tag = "status".
+        // Uses #[serde(untagged)] on the inner variants to try each shape.
+        #[derive(serde::Deserialize)]
+        #[serde(tag = "status", rename_all = "snake_case")]
+        enum Helper<T, E, L> {
+            Success { value: T },
+            Partial { value: T, loss: L },
+            Failure { error: E, loss: L },
+        }
+
+        let helper = Helper::<T, E, L>::deserialize(deserializer)?;
+        match helper {
+            Helper::Success { value } => Ok(Imperfect::Success(value)),
+            Helper::Partial { value, loss } => Ok(Imperfect::Partial(value, loss)),
+            Helper::Failure { error, loss } => Ok(Imperfect::Failure(error, loss)),
+        }
+    }
+}
+
 /// Propagate accumulated loss through the next step's result.
 ///
 /// Extracted as a standalone function so that LLVM creates a single
@@ -666,6 +743,7 @@ impl<A: Loss, B: Loss> Loss for (A, B) {
 /// Distance to crystal. Zero means crystallized. Combine takes the max
 /// (the furthest from crystal dominates).
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ConvergenceLoss(usize);
 
 impl ConvergenceLoss {
@@ -713,6 +791,7 @@ impl std::fmt::Display for ConvergenceLoss {
 /// Which dimensions were dark during observation. Zero means all observed.
 /// Combine takes the union of dark dims. Total is represented by aperture = 1.0.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ApertureLoss {
     dark_dims: Vec<usize>,
     aperture: f64,
@@ -799,6 +878,7 @@ impl std::fmt::Display for ApertureLoss {
 /// Decision uncertainty at a routing point. Zero means one model at 100%.
 /// Combine takes max entropy (most uncertain dominates).
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RoutingLoss {
     entropy: f64,
     runner_up_gap: f64,
