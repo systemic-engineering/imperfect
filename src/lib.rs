@@ -2892,4 +2892,80 @@ mod tests {
             assert_eq!(result, Imperfect::Success(2));
         }
     }
+
+    // --- Serde feature tests ---
+
+    #[cfg(feature = "serde")]
+    mod serde_tests {
+        use super::*;
+
+        #[test]
+        fn success_serializes_as_status_success() {
+            let v: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Success(42);
+            let json = serde_json::to_value(&v).unwrap();
+            assert_eq!(json["status"], "success");
+        }
+
+        #[test]
+        fn partial_serializes_with_loss() {
+            let v = Imperfect::<i32, String, ConvergenceLoss>::Partial(
+                42,
+                ConvergenceLoss::new(3),
+            );
+            let json = serde_json::to_value(&v).unwrap();
+            assert_eq!(json["status"], "partial");
+            assert!(json.get("loss").is_some(), "loss must be present, got: {}", json);
+        }
+
+        #[test]
+        fn failure_serializes_with_loss() {
+            let v: Imperfect<i32, String, ConvergenceLoss> =
+                Imperfect::Failure("gone".into(), ConvergenceLoss::new(5));
+            let json = serde_json::to_value(&v).unwrap();
+            assert_eq!(json["status"], "failure");
+        }
+
+        #[test]
+        fn roundtrip_success() {
+            let v: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Success(42);
+            let json_str = serde_json::to_string(&v).unwrap();
+            let deserialized: Imperfect<i32, String, ConvergenceLoss> =
+                serde_json::from_str(&json_str).unwrap();
+            assert_eq!(deserialized, v);
+        }
+
+        #[test]
+        fn roundtrip_partial() {
+            let v = Imperfect::<i32, String, ConvergenceLoss>::Partial(
+                42,
+                ConvergenceLoss::new(3),
+            );
+            let json_str = serde_json::to_string(&v).unwrap();
+            let deserialized: Imperfect<i32, String, ConvergenceLoss> =
+                serde_json::from_str(&json_str).unwrap();
+            assert_eq!(deserialized, v);
+        }
+
+        #[test]
+        fn roundtrip_failure() {
+            let v: Imperfect<i32, String, ConvergenceLoss> =
+                Imperfect::Failure("gone".into(), ConvergenceLoss::new(5));
+            let json_str = serde_json::to_string(&v).unwrap();
+            let deserialized: Imperfect<i32, String, ConvergenceLoss> =
+                serde_json::from_str(&json_str).unwrap();
+            assert_eq!(deserialized, v);
+        }
+
+        #[test]
+        fn partial_not_collapsed_to_success() {
+            let v = Imperfect::<i32, String, ConvergenceLoss>::Partial(
+                42,
+                ConvergenceLoss::new(3),
+            );
+            let json = serde_json::to_value(&v).unwrap();
+            // Three-state semantics: Partial is NOT Success
+            assert_ne!(json["status"], "success");
+            assert_eq!(json["status"], "partial");
+        }
+    }
 }
