@@ -962,6 +962,67 @@ impl std::fmt::Display for RoutingLoss {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Measurement — Imperfect<(), E, L>
+// ---------------------------------------------------------------------------
+
+/// A measurement of change. No value carried — just the cost.
+///
+/// - `Settled` = the geometry didn't move. Zero cost.
+/// - `Measured(loss)` = the geometry moved. Here's how much.
+/// - `Failed(error, loss)` = the measurement broke.
+///
+/// Type alias over `Imperfect<(), E, L>`. Implements domain-specific
+/// methods for cascade tracking, distribution pulses, and refract proofs.
+pub type Measurement<E, L> = Imperfect<(), E, L>;
+
+impl<E, L: Loss> Measurement<E, L> {
+    /// The geometry didn't move.
+    pub fn settled() -> Self {
+        Imperfect::Success(())
+    }
+
+    /// The geometry moved. Here's the cost.
+    pub fn measured(loss: L) -> Self {
+        if loss.is_zero() {
+            Imperfect::Success(())
+        } else {
+            Imperfect::Partial((), loss)
+        }
+    }
+
+    /// The measurement broke.
+    pub fn failed(error: E, loss: L) -> Self {
+        Imperfect::Failure(error, loss)
+    }
+
+    /// Did the geometry move?
+    pub fn is_settled(&self) -> bool {
+        matches!(self, Imperfect::Success(_))
+    }
+
+    /// Did the geometry move? (inverse of is_settled)
+    pub fn is_dirty(&self) -> bool {
+        !self.is_settled()
+    }
+
+    /// Accumulate another measurement. If either moved, the result moved.
+    /// Loss combines.
+    pub fn accumulate(self, other: Self) -> Self {
+        match (self, other) {
+            (Imperfect::Success(_), Imperfect::Success(_)) => Imperfect::Success(()),
+            (Imperfect::Success(_), Imperfect::Partial(_, l)) => Imperfect::Partial((), l),
+            (Imperfect::Partial(_, l), Imperfect::Success(_)) => Imperfect::Partial((), l),
+            (Imperfect::Partial(_, l1), Imperfect::Partial(_, l2)) => {
+                Imperfect::Partial((), l1.combine(l2))
+            }
+            (Imperfect::Failure(e, l), _) | (_, Imperfect::Failure(e, l)) => {
+                Imperfect::Failure(e, l)
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -969,6 +1030,69 @@ mod tests {
 
     fn double_u32(v: u32) -> u32 {
         v * 2
+    }
+
+    // --- Measurement ---
+
+    /// Test error type — no stringly errors.
+    #[derive(Clone, Debug, PartialEq)]
+    enum MeasureError {
+        Overflow,
+        Disconnected,
+    }
+
+    #[test]
+    fn measurement_settled_is_success() {
+        let m: Measurement<MeasureError, ConvergenceLoss> = Measurement::settled();
+        assert!(m.is_settled());
+        assert!(!m.is_dirty());
+        assert!(m.loss().is_zero());
+    }
+
+    #[test]
+    fn measurement_measured_is_partial() {
+        let m: Measurement<MeasureError, ConvergenceLoss> = Measurement::measured(ConvergenceLoss::new(5));
+        assert!(m.is_dirty());
+        assert!(!m.is_settled());
+    }
+
+    #[test]
+    fn measurement_zero_loss_is_settled() {
+        let m: Measurement<MeasureError, ConvergenceLoss> = Measurement::measured(ConvergenceLoss::zero());
+        assert!(m.is_settled());
+    }
+
+    #[test]
+    fn measurement_accumulate_both_settled() {
+        let a: Measurement<MeasureError, ConvergenceLoss> = Measurement::settled();
+        let b: Measurement<MeasureError, ConvergenceLoss> = Measurement::settled();
+        assert!(a.accumulate(b).is_settled());
+    }
+
+    #[test]
+    fn measurement_accumulate_one_dirty() {
+        let a: Measurement<MeasureError, ConvergenceLoss> = Measurement::settled();
+        let b: Measurement<MeasureError, ConvergenceLoss> = Measurement::measured(ConvergenceLoss::new(3));
+        let result = a.accumulate(b);
+        assert!(result.is_dirty());
+    }
+
+    #[test]
+    fn measurement_accumulate_both_dirty_combines_loss() {
+        let a: Measurement<MeasureError, ConvergenceLoss> = Measurement::measured(ConvergenceLoss::new(3));
+        let b: Measurement<MeasureError, ConvergenceLoss> = Measurement::measured(ConvergenceLoss::new(5));
+        let result = a.accumulate(b);
+        assert!(result.is_dirty());
+        // ConvergenceLoss::combine takes max (furthest from crystal)
+        assert_eq!(result.loss().steps(), 5);
+    }
+
+    #[test]
+    fn measurement_failure_propagates() {
+        let a: Measurement<MeasureError, ConvergenceLoss> = Measurement::settled();
+        let b: Measurement<MeasureError, ConvergenceLoss> = Measurement::failed(MeasureError::Disconnected, ConvergenceLoss::new(1));
+        let result = a.accumulate(b);
+        assert!(result.is_err());
     }
 
     // --- Imperfect with ConvergenceLoss ---
