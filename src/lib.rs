@@ -143,6 +143,83 @@ pub enum Imperfect<T, E, L: Loss> {
     Failure(E, L),
 }
 
+// --- Serde support (feature-gated) ---
+//
+// Custom Serialize/Deserialize to preserve three-state semantics.
+// Tuple variants with primitive inner types can't use serde's tag attributes,
+// so we implement the wire format by hand:
+//
+//   Success(T)    → {"status": "success", "value": T}
+//   Partial(T, L) → {"status": "partial", "value": T, "loss": L}
+//   Failure(E, L) → {"status": "failure", "error": E, "loss": L}
+
+#[cfg(feature = "serde")]
+impl<T, E, L> serde::Serialize for Imperfect<T, E, L>
+where
+    T: serde::Serialize,
+    E: serde::Serialize,
+    L: Loss + serde::Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+        match self {
+            Imperfect::Success(value) => {
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("status", "success")?;
+                map.serialize_entry("value", value)?;
+                map.end()
+            }
+            Imperfect::Partial(value, loss) => {
+                let mut map = serializer.serialize_map(Some(3))?;
+                map.serialize_entry("status", "partial")?;
+                map.serialize_entry("value", value)?;
+                map.serialize_entry("loss", loss)?;
+                map.end()
+            }
+            Imperfect::Failure(error, loss) => {
+                let mut map = serializer.serialize_map(Some(3))?;
+                map.serialize_entry("status", "failure")?;
+                map.serialize_entry("error", error)?;
+                map.serialize_entry("loss", loss)?;
+                map.end()
+            }
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, T, E, L> serde::Deserialize<'de> for Imperfect<T, E, L>
+where
+    T: serde::Deserialize<'de>,
+    E: serde::Deserialize<'de>,
+    L: Loss + serde::Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Helper enum that serde can derive-deserialize with tag = "status".
+        // Uses #[serde(untagged)] on the inner variants to try each shape.
+        #[derive(serde::Deserialize)]
+        #[serde(tag = "status", rename_all = "snake_case")]
+        enum Helper<T, E, L> {
+            Success { value: T },
+            Partial { value: T, loss: L },
+            Failure { error: E, loss: L },
+        }
+
+        let helper = Helper::<T, E, L>::deserialize(deserializer)?;
+        match helper {
+            Helper::Success { value } => Ok(Imperfect::Success(value)),
+            Helper::Partial { value, loss } => Ok(Imperfect::Partial(value, loss)),
+            Helper::Failure { error, loss } => Ok(Imperfect::Failure(error, loss)),
+        }
+    }
+}
+
 /// Propagate accumulated loss through the next step's result.
 ///
 /// Extracted as a standalone function so that LLVM creates a single
@@ -666,6 +743,7 @@ impl<A: Loss, B: Loss> Loss for (A, B) {
 /// Distance to crystal. Zero means crystallized. Combine takes the max
 /// (the furthest from crystal dominates).
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ConvergenceLoss(usize);
 
 impl ConvergenceLoss {
@@ -713,6 +791,7 @@ impl std::fmt::Display for ConvergenceLoss {
 /// Which dimensions were dark during observation. Zero means all observed.
 /// Combine takes the union of dark dims. Total is represented by aperture = 1.0.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ApertureLoss {
     dark_dims: Vec<usize>,
     aperture: f64,
@@ -799,6 +878,7 @@ impl std::fmt::Display for ApertureLoss {
 /// Decision uncertainty at a routing point. Zero means one model at 100%.
 /// Combine takes max entropy (most uncertain dominates).
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RoutingLoss {
     entropy: f64,
     runner_up_gap: f64,
@@ -882,6 +962,67 @@ impl std::fmt::Display for RoutingLoss {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Measurement — Imperfect<(), E, L>
+// ---------------------------------------------------------------------------
+
+/// A measurement of change. No value carried — just the cost.
+///
+/// - `Settled` = the geometry didn't move. Zero cost.
+/// - `Measured(loss)` = the geometry moved. Here's how much.
+/// - `Failed(error, loss)` = the measurement broke.
+///
+/// Type alias over `Imperfect<(), E, L>`. Implements domain-specific
+/// methods for cascade tracking, distribution pulses, and refract proofs.
+pub type Measurement<E, L> = Imperfect<(), E, L>;
+
+impl<E, L: Loss> Measurement<E, L> {
+    /// The geometry didn't move.
+    pub fn settled() -> Self {
+        Imperfect::Success(())
+    }
+
+    /// The geometry moved. Here's the cost.
+    pub fn measured(loss: L) -> Self {
+        if loss.is_zero() {
+            Imperfect::Success(())
+        } else {
+            Imperfect::Partial((), loss)
+        }
+    }
+
+    /// The measurement broke.
+    pub fn failed(error: E, loss: L) -> Self {
+        Imperfect::Failure(error, loss)
+    }
+
+    /// Did the geometry move?
+    pub fn is_settled(&self) -> bool {
+        matches!(self, Imperfect::Success(_))
+    }
+
+    /// Did the geometry move? (inverse of is_settled)
+    pub fn is_dirty(&self) -> bool {
+        !self.is_settled()
+    }
+
+    /// Accumulate another measurement. If either moved, the result moved.
+    /// Loss combines.
+    pub fn accumulate(self, other: Self) -> Self {
+        match (self, other) {
+            (Imperfect::Success(_), Imperfect::Success(_)) => Imperfect::Success(()),
+            (Imperfect::Success(_), Imperfect::Partial(_, l)) => Imperfect::Partial((), l),
+            (Imperfect::Partial(_, l), Imperfect::Success(_)) => Imperfect::Partial((), l),
+            (Imperfect::Partial(_, l1), Imperfect::Partial(_, l2)) => {
+                Imperfect::Partial((), l1.combine(l2))
+            }
+            (Imperfect::Failure(e, l), _) | (_, Imperfect::Failure(e, l)) => {
+                Imperfect::Failure(e, l)
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -889,6 +1030,69 @@ mod tests {
 
     fn double_u32(v: u32) -> u32 {
         v * 2
+    }
+
+    // --- Measurement ---
+
+    /// Test error type — no stringly errors.
+    #[derive(Clone, Debug, PartialEq)]
+    enum MeasureError {
+        Overflow,
+        Disconnected,
+    }
+
+    #[test]
+    fn measurement_settled_is_success() {
+        let m: Measurement<MeasureError, ConvergenceLoss> = Measurement::settled();
+        assert!(m.is_settled());
+        assert!(!m.is_dirty());
+        assert!(m.loss().is_zero());
+    }
+
+    #[test]
+    fn measurement_measured_is_partial() {
+        let m: Measurement<MeasureError, ConvergenceLoss> = Measurement::measured(ConvergenceLoss::new(5));
+        assert!(m.is_dirty());
+        assert!(!m.is_settled());
+    }
+
+    #[test]
+    fn measurement_zero_loss_is_settled() {
+        let m: Measurement<MeasureError, ConvergenceLoss> = Measurement::measured(ConvergenceLoss::zero());
+        assert!(m.is_settled());
+    }
+
+    #[test]
+    fn measurement_accumulate_both_settled() {
+        let a: Measurement<MeasureError, ConvergenceLoss> = Measurement::settled();
+        let b: Measurement<MeasureError, ConvergenceLoss> = Measurement::settled();
+        assert!(a.accumulate(b).is_settled());
+    }
+
+    #[test]
+    fn measurement_accumulate_one_dirty() {
+        let a: Measurement<MeasureError, ConvergenceLoss> = Measurement::settled();
+        let b: Measurement<MeasureError, ConvergenceLoss> = Measurement::measured(ConvergenceLoss::new(3));
+        let result = a.accumulate(b);
+        assert!(result.is_dirty());
+    }
+
+    #[test]
+    fn measurement_accumulate_both_dirty_combines_loss() {
+        let a: Measurement<MeasureError, ConvergenceLoss> = Measurement::measured(ConvergenceLoss::new(3));
+        let b: Measurement<MeasureError, ConvergenceLoss> = Measurement::measured(ConvergenceLoss::new(5));
+        let result = a.accumulate(b);
+        assert!(result.is_dirty());
+        // ConvergenceLoss::combine takes max (furthest from crystal)
+        assert_eq!(result.loss().steps(), 5);
+    }
+
+    #[test]
+    fn measurement_failure_propagates() {
+        let a: Measurement<MeasureError, ConvergenceLoss> = Measurement::settled();
+        let b: Measurement<MeasureError, ConvergenceLoss> = Measurement::failed(MeasureError::Disconnected, ConvergenceLoss::new(1));
+        let result = a.accumulate(b);
+        assert!(result.is_err());
     }
 
     // --- Imperfect with ConvergenceLoss ---
@@ -2890,6 +3094,82 @@ mod tests {
                 a + 1
             };
             assert_eq!(result, Imperfect::Success(2));
+        }
+    }
+
+    // --- Serde feature tests ---
+
+    #[cfg(feature = "serde")]
+    mod serde_tests {
+        use super::*;
+
+        #[test]
+        fn success_serializes_as_status_success() {
+            let v: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Success(42);
+            let json = serde_json::to_value(&v).unwrap();
+            assert_eq!(json["status"], "success");
+        }
+
+        #[test]
+        fn partial_serializes_with_loss() {
+            let v = Imperfect::<i32, String, ConvergenceLoss>::Partial(
+                42,
+                ConvergenceLoss::new(3),
+            );
+            let json = serde_json::to_value(&v).unwrap();
+            assert_eq!(json["status"], "partial");
+            assert!(json.get("loss").is_some(), "loss must be present, got: {}", json);
+        }
+
+        #[test]
+        fn failure_serializes_with_loss() {
+            let v: Imperfect<i32, String, ConvergenceLoss> =
+                Imperfect::Failure("gone".into(), ConvergenceLoss::new(5));
+            let json = serde_json::to_value(&v).unwrap();
+            assert_eq!(json["status"], "failure");
+        }
+
+        #[test]
+        fn roundtrip_success() {
+            let v: Imperfect<i32, String, ConvergenceLoss> = Imperfect::Success(42);
+            let json_str = serde_json::to_string(&v).unwrap();
+            let deserialized: Imperfect<i32, String, ConvergenceLoss> =
+                serde_json::from_str(&json_str).unwrap();
+            assert_eq!(deserialized, v);
+        }
+
+        #[test]
+        fn roundtrip_partial() {
+            let v = Imperfect::<i32, String, ConvergenceLoss>::Partial(
+                42,
+                ConvergenceLoss::new(3),
+            );
+            let json_str = serde_json::to_string(&v).unwrap();
+            let deserialized: Imperfect<i32, String, ConvergenceLoss> =
+                serde_json::from_str(&json_str).unwrap();
+            assert_eq!(deserialized, v);
+        }
+
+        #[test]
+        fn roundtrip_failure() {
+            let v: Imperfect<i32, String, ConvergenceLoss> =
+                Imperfect::Failure("gone".into(), ConvergenceLoss::new(5));
+            let json_str = serde_json::to_string(&v).unwrap();
+            let deserialized: Imperfect<i32, String, ConvergenceLoss> =
+                serde_json::from_str(&json_str).unwrap();
+            assert_eq!(deserialized, v);
+        }
+
+        #[test]
+        fn partial_not_collapsed_to_success() {
+            let v = Imperfect::<i32, String, ConvergenceLoss>::Partial(
+                42,
+                ConvergenceLoss::new(3),
+            );
+            let json = serde_json::to_value(&v).unwrap();
+            // Three-state semantics: Partial is NOT Success
+            assert_ne!(json["status"], "success");
+            assert_eq!(json["status"], "partial");
         }
     }
 }
