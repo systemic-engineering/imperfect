@@ -117,6 +117,48 @@ pub trait Loss: Clone + Default {
     fn combine(self, other: Self) -> Self;
 }
 
+/// A `Loss` with metric properties.
+///
+/// Where `Loss` is a monoid (associative accumulation with identity), `Metric`
+/// is the stronger structure required by Connes' bounded-commutator condition
+/// on spectral triples: the residual `‖[D, a]‖` must be a norm-like quantity,
+/// not merely a monoid element.
+///
+/// A `Metric` is a `Loss` that additionally satisfies:
+///
+/// - **Non-negativity** — `is_non_negative()` returns true for every inhabitant
+///   the type admits. The trait provides a method (not just a law) so impls
+///   can certify the invariant at run time.
+/// - **Symmetry** — `a.distance_to(b) == b.distance_to(a)` for all a, b.
+/// - **Triangle inequality** — `a.triangle(b, c)` returns true iff
+///   `a.distance_to(c) <= a.distance_to(b).combine(b.distance_to(c))`,
+///   where the right-hand side uses the `Loss::combine` accumulation as the
+///   metric-additive operation.
+///
+/// Stringly Loss impls (collection-of-events losses such as `String` or
+/// `Vec<_>`) deliberately do NOT implement `Metric` — they fail symmetry.
+/// Downstream code requiring a metric carrier (e.g. `Transport::Holonomy`
+/// in `prism-core::bundle`) must use a numeric loss such as `ScalarLoss`.
+pub trait Metric: Loss {
+    /// Whether this value satisfies the non-negativity invariant of a metric.
+    /// Numeric impls return true for all in-range inhabitants. Used by
+    /// property tests, not by the propagation machinery.
+    fn is_non_negative(&self) -> bool;
+
+    /// The metric distance between `self` and `other`.
+    ///
+    /// Must be symmetric: `a.distance_to(b) == b.distance_to(a)`.
+    /// Must satisfy `a.distance_to(a).is_zero()`.
+    fn distance_to(&self, other: &Self) -> Self;
+
+    /// Whether the triangle inequality holds for the triple `(self, b, c)`:
+    /// `self.distance_to(c) <= self.distance_to(b).combine(b.distance_to(c))`.
+    ///
+    /// Returning a verdict (rather than panicking) lets property tests
+    /// sample inhabitants and accumulate failures.
+    fn triangle(&self, b: &Self, c: &Self) -> bool;
+}
+
 /// Result extended with partial success.
 ///
 /// Three states:
