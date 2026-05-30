@@ -98,6 +98,9 @@ pub use terni_macros::eh;
 // when expanded inside this crate's own tests.
 extern crate self as terni;
 
+pub mod transparency;
+pub use transparency::{verdict_union, Diagnostic, PropertyVerdict, Transparency};
+
 /// A measure of what didn't survive a transformation.
 ///
 /// Loss forms a monoid: `zero()` is the identity element, `combine` is
