@@ -101,6 +101,53 @@ fn merge_with_pass_is_neutral() {
 }
 
 // ---------------------------------------------------------------------------
+// PropertyVerdict::merge_with — Pass-paired completeness (Seam I5).
+//
+// `merge_with_pass_is_neutral` above exercises Pass+Partial and Partial+Pass.
+// The remaining Pass-paired arms (Pass+Pass, Pass+Fail, Fail+Pass) round out
+// the coverage of the documented monoid. These cases shouldn't usually arise
+// inside an Opaque map — the per-location verdict carriers are populated
+// only for non-Pass locations — but the code paths exist and must remain
+// witnessed.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn merge_with_pass_and_pass_stays_pass() {
+    let mut a = PropertyVerdict::Pass;
+    let b = PropertyVerdict::Pass;
+    a.merge_with(&b);
+    match a {
+        PropertyVerdict::Pass => {}
+        other => panic!("expected Pass, got {:?}", other),
+    }
+}
+
+#[test]
+fn merge_with_pass_and_fail_yields_fail() {
+    let mut a = PropertyVerdict::Pass;
+    let b = PropertyVerdict::Fail(Diagnostic::new("boom"));
+    a.merge_with(&b);
+    match a {
+        PropertyVerdict::Fail(d) => assert_eq!(d.as_str(), "boom"),
+        other => panic!("expected Fail, got {:?}", other),
+    }
+}
+
+#[test]
+fn merge_with_fail_and_pass_stays_fail() {
+    // Fail-self short-circuits in the first arm of merge_with, but the
+    // observable behaviour from a caller's perspective is the same: Fail
+    // survives a Pass on the right.
+    let mut a = PropertyVerdict::Fail(Diagnostic::new("boom"));
+    let b = PropertyVerdict::Pass;
+    a.merge_with(&b);
+    match a {
+        PropertyVerdict::Fail(d) => assert_eq!(d.as_str(), "boom"),
+        other => panic!("expected Fail, got {:?}", other),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // verdict_union
 // ---------------------------------------------------------------------------
 
@@ -328,4 +375,44 @@ fn combine_associative_disjoint_paths() {
     let lhs = a.clone().combine(b.clone()).combine(c.clone());
     let rhs = a.combine(b.combine(c));
     assert_eq!(lhs, rhs);
+}
+
+// ---------------------------------------------------------------------------
+// Transparency::opaque — public constructor that prevents empty-map forge
+// by input shape (Seam I1).
+//
+// The raw `Opaque(BTreeMap)` variant is `pub(crate)`: outside callers can
+// no longer write `Transparency::Opaque(BTreeMap::new())` to forge the
+// catastrophic sentinel. The new `opaque(ref, verdict)` constructor takes
+// a required first verdict, making empty construction structurally
+// impossible from the call site.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn opaque_constructor_builds_non_empty_opaque() {
+    let t: Transparency<String> = Transparency::opaque(
+        "@p".to_string(),
+        PropertyVerdict::Fail(Diagnostic::new("boom")),
+    );
+    assert!(t.is_opaque());
+    assert!(!t.is_catastrophic(), "opaque() must never forge catastrophic");
+    let map = t.opacities().expect("opaque must produce Opaque");
+    assert_eq!(map.len(), 1);
+    assert!(map.contains_key("@p"));
+}
+
+#[test]
+fn opaque_constructor_matches_single() {
+    // Today `opaque` is the renamed-canonical form alongside `single` (which
+    // stays for the existing callers). They produce structurally identical
+    // values for the single-pair case.
+    let a: Transparency<String> = Transparency::opaque(
+        "@p".to_string(),
+        PropertyVerdict::Fail(Diagnostic::new("x")),
+    );
+    let b: Transparency<String> = Transparency::single(
+        "@p".to_string(),
+        PropertyVerdict::Fail(Diagnostic::new("x")),
+    );
+    assert_eq!(a, b);
 }
