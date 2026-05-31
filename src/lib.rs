@@ -99,7 +99,7 @@ pub use terni_macros::eh;
 extern crate self as terni;
 
 pub mod transparency;
-pub use transparency::{verdict_union, Diagnostic, PropertyVerdict, Transparency};
+pub use transparency::{verdict_union, Diagnostic, OpacityMap, PropertyVerdict, Transparency};
 
 /// A measure of what didn't survive a transformation.
 ///

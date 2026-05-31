@@ -18,10 +18,18 @@
 //!
 //! - [`Transparency::clear`] — the identity (no opacity).
 //! - [`Transparency::single`] — a single located opacity.
+//! - [`Transparency::opaque`] — a single located opacity (canonical
+//!   constructor name; structurally identical to `single`).
 //! - [`Transparency::catastrophic`] — the absorbing element.
 //!
-//! Direct construction via `Transparency::Opaque(BTreeMap::new())` is not
-//! part of the API — `total()` reserves that shape.
+//! The `Opaque(BTreeMap)` variant is `pub(crate)`: outside the
+//! `terni::transparency` module the variant cannot be named directly, so
+//! `Transparency::Opaque(BTreeMap::new())` is not constructible from
+//! downstream code. The catastrophic sentinel can only arise through
+//! [`Loss::total`] or [`Transparency::catastrophic`] (explicit) or via
+//! [`Loss::combine`]-driven absorption from within the crate (legit, by
+//! composition). Per Seam I1 (pre-merge adversarial review, 2026-05-30):
+//! the invariant moves from "doc comment" to type system.
 //!
 //! ## Why not `P: Default`
 //!
@@ -44,6 +52,50 @@
 use std::collections::BTreeMap;
 
 use crate::Loss;
+
+// ---------------------------------------------------------------------------
+// OpacityMap — newtype around the BTreeMap inside Transparency::Opaque.
+// ---------------------------------------------------------------------------
+
+/// The opacities map carried inside [`Transparency::Opaque`]. Newtype
+/// over `BTreeMap<P, PropertyVerdict>` with a `pub(crate)` constructor:
+/// outside the `terni::transparency` module nothing can construct an
+/// `OpacityMap` directly, so the catastrophic-by-empty-map sentinel
+/// cannot be forged from downstream code.
+///
+/// Per Seam I1 (pre-merge adversarial review, 2026-05-30): the
+/// invariant moves from "doc comment" to type system.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OpacityMap<P: Ord + Clone>(pub(crate) BTreeMap<P, PropertyVerdict>);
+
+impl<P: Ord + Clone> OpacityMap<P> {
+    /// Borrow the underlying map.
+    pub fn as_btreemap(&self) -> &BTreeMap<P, PropertyVerdict> {
+        &self.0
+    }
+
+    /// True iff this map has no entries (the catastrophic-sentinel shape).
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Number of opacities in the map.
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// True iff there's a verdict at `path`.
+    pub fn contains_key(&self, path: &P) -> bool {
+        self.0.contains_key(path)
+    }
+}
+
+impl<P: Ord + Clone> std::ops::Index<&P> for OpacityMap<P> {
+    type Output = PropertyVerdict;
+    fn index(&self, key: &P) -> &PropertyVerdict {
+        &self.0[key]
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Diagnostic — a small named message accompanying a verdict.
@@ -170,9 +222,12 @@ pub fn verdict_union<P: Ord + Clone>(
 ///
 /// `Opaque(empty_map)` is the catastrophic sentinel returned by
 /// [`Loss::total`]. Public constructors ([`Transparency::clear`],
-/// [`Transparency::single`], [`Transparency::catastrophic`]) hide this
-/// footgun — direct `Opaque(BTreeMap::new())` is not part of the API even
-/// though it is `pub`.
+/// [`Transparency::single`], [`Transparency::opaque`],
+/// [`Transparency::catastrophic`]) hide this footgun — the inner
+/// [`OpacityMap`] has a `pub(crate)` constructor, so
+/// `Transparency::Opaque(OpacityMap(BTreeMap::new()))` is unreachable
+/// from outside the crate. Forging the catastrophic sentinel from
+/// downstream code is now structurally impossible.
 ///
 /// `P` is the substrate-location type. There is **no** `P : Default`
 /// bound — the identity element is structural (`Clear` carries nothing).
@@ -187,7 +242,13 @@ pub enum Transparency<P: Ord + Clone> {
     Clear,
     /// Accumulated opacities at substrate locations. An empty map is the
     /// catastrophic sentinel — see [`Loss::total`].
-    Opaque(BTreeMap<P, PropertyVerdict>),
+    ///
+    /// Wraps [`OpacityMap`]: outside the crate the inner map is not
+    /// constructible (the [`OpacityMap`] tuple field is `pub(crate)`),
+    /// so downstream callers must go through
+    /// [`Transparency::opaque`] / [`Transparency::single`] /
+    /// [`Transparency::catastrophic`]. Per Seam I1.
+    Opaque(OpacityMap<P>),
 }
 
 impl<P: Ord + Clone> Transparency<P> {
@@ -200,21 +261,36 @@ impl<P: Ord + Clone> Transparency<P> {
     /// The catastrophic sentinel — `Opaque` with no entries. Absorbing
     /// element under `combine`.
     pub fn catastrophic() -> Self {
-        Transparency::Opaque(BTreeMap::new())
+        Transparency::Opaque(OpacityMap(BTreeMap::new()))
     }
 
     /// A single located opacity.
     pub fn single(path: P, verdict: PropertyVerdict) -> Self {
+        Self::opaque(path, verdict)
+    }
+
+    /// A single located opacity — canonical constructor name.
+    ///
+    /// Per Seam I1 (2026-05-30): the inner [`OpacityMap`] is
+    /// constructible only inside the `terni` crate, so outside callers
+    /// cannot write `Transparency::Opaque(OpacityMap(BTreeMap))`
+    /// directly. `opaque` is the named public constructor; it takes a
+    /// required first `(path, verdict)` pair, making empty-map forge
+    /// structurally impossible at the call site. For the legitimate
+    /// catastrophic-by-composition case, [`Loss::combine`] still
+    /// produces an empty `Opaque` via crate-internal absorption — that
+    /// path is part of the monoid semantics and is intended.
+    pub fn opaque(path: P, verdict: PropertyVerdict) -> Self {
         let mut m = BTreeMap::new();
         m.insert(path, verdict);
-        Transparency::Opaque(m)
+        Transparency::Opaque(OpacityMap(m))
     }
 
     /// Borrow the opacities map. Returns `None` for `Clear`.
     pub fn opacities(&self) -> Option<&BTreeMap<P, PropertyVerdict>> {
         match self {
             Transparency::Clear => None,
-            Transparency::Opaque(m) => Some(m),
+            Transparency::Opaque(m) => Some(&m.0),
         }
     }
 
@@ -246,7 +322,7 @@ impl<P: Ord + Clone> Loss for Transparency<P> {
     fn total() -> Self {
         // Catastrophic: opaque, no locatable structure. Absorbs under
         // combine.
-        Transparency::Opaque(BTreeMap::new())
+        Transparency::Opaque(OpacityMap(BTreeMap::new()))
     }
 
     fn is_zero(&self) -> bool {
@@ -258,8 +334,10 @@ impl<P: Ord + Clone> Loss for Transparency<P> {
         match (self, other) {
             (Clear, x) | (x, Clear) => x,
             // Either side empty-Opaque = catastrophic = absorbs.
-            (Opaque(m), _) | (_, Opaque(m)) if m.is_empty() => Opaque(BTreeMap::new()),
-            (Opaque(m1), Opaque(m2)) => Opaque(verdict_union(m1, m2)),
+            (Opaque(m), _) | (_, Opaque(m)) if m.is_empty() => {
+                Opaque(OpacityMap(BTreeMap::new()))
+            }
+            (Opaque(m1), Opaque(m2)) => Opaque(OpacityMap(verdict_union(m1.0, m2.0))),
         }
     }
 }
