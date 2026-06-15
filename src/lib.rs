@@ -1018,7 +1018,7 @@ impl std::fmt::Display for RoutingLoss {
 /// - `Failed(error, loss)` = the measurement broke.
 ///
 /// Type alias over `Imperfect<(), E, L>`. Implements domain-specific
-/// methods for cascade tracking, distribution pulses, and refract proofs.
+/// methods for cascade tracking, distribution pulses, and settle proofs.
 pub type Measurement<E, L> = Imperfect<(), E, L>;
 
 impl<E, L: Loss> Measurement<E, L> {
@@ -1096,14 +1096,16 @@ mod tests {
 
     #[test]
     fn measurement_measured_is_partial() {
-        let m: Measurement<MeasureError, ConvergenceLoss> = Measurement::measured(ConvergenceLoss::new(5));
+        let m: Measurement<MeasureError, ConvergenceLoss> =
+            Measurement::measured(ConvergenceLoss::new(5));
         assert!(m.is_dirty());
         assert!(!m.is_settled());
     }
 
     #[test]
     fn measurement_zero_loss_is_settled() {
-        let m: Measurement<MeasureError, ConvergenceLoss> = Measurement::measured(ConvergenceLoss::zero());
+        let m: Measurement<MeasureError, ConvergenceLoss> =
+            Measurement::measured(ConvergenceLoss::zero());
         assert!(m.is_settled());
     }
 
@@ -1117,15 +1119,18 @@ mod tests {
     #[test]
     fn measurement_accumulate_one_dirty() {
         let a: Measurement<MeasureError, ConvergenceLoss> = Measurement::settled();
-        let b: Measurement<MeasureError, ConvergenceLoss> = Measurement::measured(ConvergenceLoss::new(3));
+        let b: Measurement<MeasureError, ConvergenceLoss> =
+            Measurement::measured(ConvergenceLoss::new(3));
         let result = a.accumulate(b);
         assert!(result.is_dirty());
     }
 
     #[test]
     fn measurement_accumulate_both_dirty_combines_loss() {
-        let a: Measurement<MeasureError, ConvergenceLoss> = Measurement::measured(ConvergenceLoss::new(3));
-        let b: Measurement<MeasureError, ConvergenceLoss> = Measurement::measured(ConvergenceLoss::new(5));
+        let a: Measurement<MeasureError, ConvergenceLoss> =
+            Measurement::measured(ConvergenceLoss::new(3));
+        let b: Measurement<MeasureError, ConvergenceLoss> =
+            Measurement::measured(ConvergenceLoss::new(5));
         let result = a.accumulate(b);
         assert!(result.is_dirty());
         // ConvergenceLoss::combine takes max (furthest from crystal)
@@ -1135,7 +1140,8 @@ mod tests {
     #[test]
     fn measurement_failure_propagates() {
         let a: Measurement<MeasureError, ConvergenceLoss> = Measurement::settled();
-        let b: Measurement<MeasureError, ConvergenceLoss> = Measurement::failed(MeasureError::Disconnected, ConvergenceLoss::new(1));
+        let b: Measurement<MeasureError, ConvergenceLoss> =
+            Measurement::failed(MeasureError::Disconnected, ConvergenceLoss::new(1));
         let result = a.accumulate(b);
         assert!(result.is_err());
     }
@@ -3157,13 +3163,14 @@ mod tests {
 
         #[test]
         fn partial_serializes_with_loss() {
-            let v = Imperfect::<i32, String, ConvergenceLoss>::Partial(
-                42,
-                ConvergenceLoss::new(3),
-            );
+            let v = Imperfect::<i32, String, ConvergenceLoss>::Partial(42, ConvergenceLoss::new(3));
             let json = serde_json::to_value(&v).unwrap();
             assert_eq!(json["status"], "partial");
-            assert!(json.get("loss").is_some(), "loss must be present, got: {}", json);
+            assert!(
+                json.get("loss").is_some(),
+                "loss must be present, got: {}",
+                json
+            );
         }
 
         #[test]
@@ -3185,10 +3192,7 @@ mod tests {
 
         #[test]
         fn roundtrip_partial() {
-            let v = Imperfect::<i32, String, ConvergenceLoss>::Partial(
-                42,
-                ConvergenceLoss::new(3),
-            );
+            let v = Imperfect::<i32, String, ConvergenceLoss>::Partial(42, ConvergenceLoss::new(3));
             let json_str = serde_json::to_string(&v).unwrap();
             let deserialized: Imperfect<i32, String, ConvergenceLoss> =
                 serde_json::from_str(&json_str).unwrap();
@@ -3207,10 +3211,7 @@ mod tests {
 
         #[test]
         fn partial_not_collapsed_to_success() {
-            let v = Imperfect::<i32, String, ConvergenceLoss>::Partial(
-                42,
-                ConvergenceLoss::new(3),
-            );
+            let v = Imperfect::<i32, String, ConvergenceLoss>::Partial(42, ConvergenceLoss::new(3));
             let json = serde_json::to_value(&v).unwrap();
             // Three-state semantics: Partial is NOT Success
             assert_ne!(json["status"], "success");

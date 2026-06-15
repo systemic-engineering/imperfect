@@ -53,7 +53,10 @@ fn merge_with_partials_unions_diagnostics_min_confidence() {
             confidence,
             diagnostics,
         } => {
-            assert!((confidence - 0.5).abs() < 1e-12, "min wins, got {confidence}");
+            assert!(
+                (confidence - 0.5).abs() < 1e-12,
+                "min wins, got {confidence}"
+            );
             let strs: Vec<&str> = diagnostics.iter().map(|d| d.as_str()).collect();
             assert_eq!(strs, vec!["d1", "d2", "d3"]);
         }
@@ -183,10 +186,7 @@ fn verdict_union_colliding_keys_merge_via_merge_with() {
         },
     );
     let mut b: BTreeMap<String, PropertyVerdict> = BTreeMap::new();
-    b.insert(
-        "@x".into(),
-        PropertyVerdict::Fail(Diagnostic::new("boom")),
-    );
+    b.insert("@x".into(), PropertyVerdict::Fail(Diagnostic::new("boom")));
     let merged = verdict_union(a, b);
     assert_eq!(merged.len(), 1);
     match &merged["@x"] {
@@ -395,7 +395,10 @@ fn opaque_constructor_builds_non_empty_opaque() {
         PropertyVerdict::Fail(Diagnostic::new("boom")),
     );
     assert!(t.is_opaque());
-    assert!(!t.is_catastrophic(), "opaque() must never forge catastrophic");
+    assert!(
+        !t.is_catastrophic(),
+        "opaque() must never forge catastrophic"
+    );
     let map = t.opacities().expect("opaque must produce Opaque");
     assert_eq!(map.len(), 1);
     assert!(map.contains_key("@p"));

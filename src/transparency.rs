@@ -334,9 +334,7 @@ impl<P: Ord + Clone> Loss for Transparency<P> {
         match (self, other) {
             (Clear, x) | (x, Clear) => x,
             // Either side empty-Opaque = catastrophic = absorbs.
-            (Opaque(m), _) | (_, Opaque(m)) if m.is_empty() => {
-                Opaque(OpacityMap(BTreeMap::new()))
-            }
+            (Opaque(m), _) | (_, Opaque(m)) if m.is_empty() => Opaque(OpacityMap(BTreeMap::new())),
             (Opaque(m1), Opaque(m2)) => Opaque(OpacityMap(verdict_union(m1.0, m2.0))),
         }
     }
