@@ -1,6 +1,6 @@
 [package]
 name = "terni"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Ternary error handling: Success, Partial with measured loss, Failure. Because computation is not binary."
@@ -15,7 +15,7 @@ macros = ["dep:terni-macros"]
 serde = ["dep:serde"]
 
 [dependencies]
-terni-macros = { version = "0.6", path = "macros", optional = true }
+terni-macros = { version = "0.7", path = "macros", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 
 [dev-dependencies]
