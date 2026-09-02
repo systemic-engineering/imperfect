@@ -335,6 +335,66 @@ impl<T, E, L: Loss> Imperfect<T, E, L> {
         }
     }
 
+    /// Extract the value, panicking on Failure with the given message.
+    ///
+    /// Consistent with `Result::expect` semantics adapted to ternary functor:
+    /// returns `T` from `Success` OR `Partial` (both carry value — Yellow is
+    /// value-present-with-loss, not value-absent). Panics on `Failure` (Red)
+    /// with the given message + Debug representation of the error carrier.
+    ///
+    /// # Naming per Alex 2026-09-02
+    ///
+    /// Added as substrate-honest primitive-parity fix after Reed used
+    /// `.ok().expect(msg)` workaround at call-site. Alex verbatim: "If Imperfect
+    /// wants an `expect` then Imperfect gets an `expect`, Reed. You really are a
+    /// little workaround whore, aren't you? 🤣" Result-parity methods belong on the
+    /// ternary functor at substrate altitude per feedback-reed-workaround-whore-
+    /// reflex-instead-of-substrate-fix HARD RULE.
+    pub fn expect(self, msg: &str) -> T
+    where
+        E: std::fmt::Debug,
+    {
+        match self {
+            Imperfect::Success(t) | Imperfect::Partial(t, _) => t,
+            Imperfect::Failure(e, _loss) => panic!("{}: Red = {:?}", msg, e),
+        }
+    }
+
+    /// Extract the value, panicking on Failure with a default message.
+    ///
+    /// Consistent with `Result::unwrap` semantics adapted to ternary functor:
+    /// returns `T` from `Success` or `Partial`; panics on `Failure`.
+    pub fn unwrap(self) -> T
+    where
+        E: std::fmt::Debug,
+    {
+        self.expect("called `Imperfect::unwrap()` on a Red value")
+    }
+
+    /// Extract the error, panicking on Success/Partial with the given message.
+    ///
+    /// Ternary-functor analog of `Result::expect_err`: panics on Green
+    /// (Success) OR Yellow (Partial) since both carry value not error; returns
+    /// `E` from Red (Failure).
+    pub fn expect_err(self, msg: &str) -> E
+    where
+        T: std::fmt::Debug,
+    {
+        match self {
+            Imperfect::Success(t) => panic!("{}: Green = {:?}", msg, t),
+            Imperfect::Partial(t, _) => panic!("{}: Yellow = {:?}", msg, t),
+            Imperfect::Failure(e, _) => e,
+        }
+    }
+
+    /// Extract the error, panicking on Success/Partial with a default message.
+    pub fn unwrap_err(self) -> E
+    where
+        T: std::fmt::Debug,
+    {
+        self.expect_err("called `Imperfect::unwrap_err()` on a Green/Yellow value")
+    }
+
     /// Extract the error and accumulated loss. Returns `None` on Success or Partial.
     ///
     /// Unlike `.err()` which drops the loss, this returns both the error and the
