@@ -6,8 +6,11 @@
 //! Result extended with partial success. Three states:
 //!
 //! - **`Success(T)`** — the transformation preserved everything. Zero loss.
-//! - **`Partial(T, L)`** — a value came through, but something was lost getting here.
-//!   The loss is measured and carried forward.
+//! - **`Partial(T, L)`** — a value came through, but it is not the whole story.
+//!   Something was lost getting here, or something has not settled yet, or both.
+//!   The loss carries both halves forward: what is behind (already lost) and
+//!   what is ahead (still moving). `Partial` is the computation saying
+//!   *"here is what I have — I don't know the rest yet."*
 //! - **`Failure(E, L)`** — no value survived, but the cost of getting here is measured.
 //!   The accumulated loss tells you what it cost to arrive at this failure.
 //!
@@ -166,8 +169,19 @@ pub trait Metric: Loss {
 ///
 /// Three states:
 /// - `Success(T)` — perfect result, zero loss.
-/// - `Partial(T, L)` — value present, some information lost getting here.
+/// - `Partial(T, L)` — value present, not the whole story: something lost
+///   getting here, and/or something not settled yet.
 /// - `Failure(E, L)` — failure, no value, but the cost of getting here is measured.
+///
+/// # "I don't know yet"
+///
+/// A coincidence detector can tell you *whether*. `Imperfect` also tells you
+/// *how much* — and *not yet*. When a computation has not stopped moving,
+/// the honest answer is neither `Success` (claiming to know) nor `Failure`
+/// (giving up). It is `Partial`: the value so far, plus a loss that says what
+/// was lost behind and what is still open ahead. `Partial` promises nothing
+/// about the future — it may settle, it may not. It reports its motion and its
+/// cost, and it can be picked up again.
 ///
 /// The design descends from PbtA (Powered by the Apocalypse) tabletop games,
 /// which use three outcome tiers: 10+ is full success, 7-9 is success with
@@ -182,7 +196,9 @@ pub trait Metric: Loss {
 pub enum Imperfect<T, E, L: Loss> {
     /// Perfect result, zero loss.
     Success(T),
-    /// Value present, some information lost getting here.
+    /// Value present, not the whole story: some information lost getting here,
+    /// and/or some not settled yet. "Here is what I have — I don't know the
+    /// rest yet."
     Partial(T, L),
     /// Failure, no value, but the cost of getting here is measured.
     Failure(E, L),
