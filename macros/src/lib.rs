@@ -300,18 +300,25 @@ pub fn eh(input: TokenStream) -> TokenStream {
     }
 
     // Split: all but last are prefix statements, last is the tail expression
-    // that gets wrapped in Ok(...)
+    // that gets wrapped in Ok(...).
+    //
+    // A tail expression is bound before it is wrapped: `Ok(expr?)` reads as a
+    // needless `?` to clippy, but here `?` accumulates the tail's loss.
+    let unit = quote! { ::core::result::Result::Ok(()) };
     let (prefix, tail) = if stmts.is_empty() {
-        (vec![], quote! { () })
+        (vec![], unit)
     } else {
         let last = stmts.pop().unwrap();
         let tail = match last {
-            Stmt::Expr(expr, None) => quote! { #expr },
+            Stmt::Expr(expr, None) => quote! {
+                let __eh_tail = #expr;
+                ::core::result::Result::Ok(__eh_tail)
+            },
             other => {
                 // Last statement is not a tail expression (e.g. `let x = ...;`)
                 // Put it back and use unit as tail
                 stmts.push(other);
-                quote! { () }
+                unit
             }
         };
         (stmts, tail)
@@ -380,7 +387,7 @@ pub fn eh(input: TokenStream) -> TokenStream {
         let mut __eh_ctx = ::terni::Eh::new();
         let __eh_result: ::core::result::Result<_, _> = (|| {
             #(#prefix)*
-            ::core::result::Result::Ok(#tail)
+            #tail
         })();
         match __eh_result {
             #ok_branch

@@ -1158,7 +1158,6 @@ mod tests {
     /// Test error type — no stringly errors.
     #[derive(Clone, Debug, PartialEq)]
     enum MeasureError {
-        Overflow,
         Disconnected,
     }
 
@@ -2882,8 +2881,8 @@ mod tests {
                     "boom".into(),
                     ConvergenceLoss::new(2),
                 )?;
-                // This line should never execute
-                unreachable!()
+                // Never reached: if it were, the result would be Success(0).
+                0
             };
             assert!(result.is_err());
             assert_eq!(result.err(), Some("boom".to_string()));
@@ -2920,7 +2919,8 @@ mod tests {
         fn result_err_short_circuits() {
             let result: Imperfect<i32, String, ConvergenceLoss> = eh! {
                 let _a: i32 = Err::<i32, String>("nope".into())?;
-                unreachable!()
+                // Never reached: if it were, the result would be Success(0).
+                0
             };
             assert!(result.is_err());
             assert_eq!(result.err(), Some("nope".to_string()));
