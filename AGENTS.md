@@ -127,6 +127,16 @@ eh.finish(a)                        // wraps with accumulated loss
 
 `#[must_use]` — dropping `Eh` without `.finish()` discards loss.
 
+### Precedence (`src/precedence.rs`)
+
+```rust
+join_with(&signed_order, parts) // collects; never short-circuits
+```
+
+`Precedence<E, L>` has no shipped impl, no blanket impl, and `Outranks` has no
+`Default`. Keep it that way: the order is the caller's, signed. The combined
+loss is every part's loss, under any order.
+
 ### Loss trait
 
 ```rust
@@ -146,6 +156,7 @@ Stdlib impls: `Vec<T>`, `HashSet<T>`, `BTreeSet<T>`, `String`, `usize`, `u64`, `
 - Do NOT add `ShannonLoss` back. It was removed deliberately.
 - Do NOT add a default type parameter to `Imperfect`. It was removed deliberately.
 - Do NOT skip the red phase. Ever.
+- Do NOT give `Precedence` a default, a blanket impl, or a shipped order.
 - Do NOT lower the coverage threshold.
 - Do NOT add dependencies without discussion.
 - Do NOT rename the type `Imperfect`. The crate is `terni`. The type is `Imperfect`.
@@ -156,6 +167,8 @@ Stdlib impls: `Vec<T>`, `HashSet<T>`, `BTreeSet<T>`, `String`, `usize`, `u64`, `
 ```
 src/lib.rs      — everything. Single-file crate.
 benches/        — criterion benchmarks
+src/precedence.rs — join_with under a signed Precedence (no default)
+src/transparency.rs — Transparency<P> loss
 docs/           — detailed documentation
   benchmarks.md
   context.md
@@ -163,6 +176,7 @@ docs/           — detailed documentation
   loss-types.md
   migration.md
   pipeline.md
+  precedence.md
   terni-functor.md
 ```
 
