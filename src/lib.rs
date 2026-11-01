@@ -1128,7 +1128,9 @@ impl<E, L: Loss> Measurement<E, L> {
     }
 
     /// Accumulate another measurement. If either moved, the result moved.
-    /// Loss combines.
+    /// Loss combines, `self` then `other`, in every case, including Failure:
+    /// a Failure keeps its error (the first one, if both failed) and carries
+    /// the loss of both sides.
     pub fn accumulate(self, other: Self) -> Self {
         match (self, other) {
             (Imperfect::Success(_), Imperfect::Success(_)) => Imperfect::Success(()),
@@ -1137,9 +1139,8 @@ impl<E, L: Loss> Measurement<E, L> {
             (Imperfect::Partial(_, l1), Imperfect::Partial(_, l2)) => {
                 Imperfect::Partial((), l1.combine(l2))
             }
-            (Imperfect::Failure(e, l), _) | (_, Imperfect::Failure(e, l)) => {
-                Imperfect::Failure(e, l)
-            }
+            (Imperfect::Failure(e, l1), other) => Imperfect::Failure(e, l1.combine(other.loss())),
+            (this, Imperfect::Failure(e, l2)) => Imperfect::Failure(e, this.loss().combine(l2)),
         }
     }
 }
