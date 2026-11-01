@@ -1131,7 +1131,9 @@ impl<E, L: Loss> Measurement<E, L> {
     }
 
     /// Accumulate another measurement. If either moved, the result moved.
-    /// Loss combines.
+    /// Loss combines, `self` then `other`, in every case, including Failure:
+    /// a Failure keeps its error (the first one, if both failed) and carries
+    /// the loss of both sides.
     pub fn accumulate(self, other: Self) -> Self {
         match (self, other) {
             (Imperfect::Success(_), Imperfect::Success(_)) => Imperfect::Success(()),
@@ -1140,9 +1142,8 @@ impl<E, L: Loss> Measurement<E, L> {
             (Imperfect::Partial(_, l1), Imperfect::Partial(_, l2)) => {
                 Imperfect::Partial((), l1.combine(l2))
             }
-            (Imperfect::Failure(e, l), _) | (_, Imperfect::Failure(e, l)) => {
-                Imperfect::Failure(e, l)
-            }
+            (Imperfect::Failure(e, l1), other) => Imperfect::Failure(e, l1.combine(other.loss())),
+            (this, Imperfect::Failure(e, l2)) => Imperfect::Failure(e, this.loss().combine(l2)),
         }
     }
 }
@@ -1222,6 +1223,117 @@ mod tests {
             Measurement::failed(MeasureError::Disconnected, ConvergenceLoss::new(1));
         let result = a.accumulate(b);
         assert!(result.is_err());
+    }
+
+    // --- accumulate never drops loss across a Failure ---
+    //
+    // Order is `self` then `other`: `self_loss.combine(other_loss)`, the same
+    // order the Partial+Partial arm uses. Vec<String> appends, so the order is
+    // visible in the result.
+
+    fn vloss(xs: &[&str]) -> Vec<String> {
+        xs.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn measurement_accumulate_partial_then_failure_keeps_both_losses() {
+        let a: Measurement<MeasureError, Vec<String>> = Measurement::measured(vloss(&["l1"]));
+        let b: Measurement<MeasureError, Vec<String>> =
+            Measurement::failed(MeasureError::Disconnected, vloss(&["l2"]));
+        assert_eq!(
+            a.accumulate(b),
+            Imperfect::Failure(MeasureError::Disconnected, vloss(&["l1", "l2"]))
+        );
+    }
+
+    #[test]
+    fn measurement_accumulate_failure_then_partial_keeps_both_losses() {
+        let a: Measurement<MeasureError, Vec<String>> =
+            Measurement::failed(MeasureError::Disconnected, vloss(&["l2"]));
+        let b: Measurement<MeasureError, Vec<String>> = Measurement::measured(vloss(&["l1"]));
+        assert_eq!(
+            a.accumulate(b),
+            Imperfect::Failure(MeasureError::Disconnected, vloss(&["l2", "l1"]))
+        );
+    }
+
+    #[test]
+    fn measurement_accumulate_failure_failure_first_error_wins_losses_combine() {
+        let a: Measurement<&str, Vec<String>> = Measurement::failed("first", vloss(&["l1"]));
+        let b: Measurement<&str, Vec<String>> = Measurement::failed("second", vloss(&["l2"]));
+        assert_eq!(
+            a.accumulate(b),
+            Imperfect::Failure("first", vloss(&["l1", "l2"]))
+        );
+    }
+
+    #[test]
+    fn measurement_accumulate_failure_settled_keeps_loss_either_order() {
+        let f = || -> Measurement<&str, Vec<String>> { Measurement::failed("e", vloss(&["l"])) };
+        let s = || -> Measurement<&str, Vec<String>> { Measurement::settled() };
+        assert_eq!(f().accumulate(s()), Imperfect::Failure("e", vloss(&["l"])));
+        assert_eq!(s().accumulate(f()), Imperfect::Failure("e", vloss(&["l"])));
+    }
+
+    #[test]
+    fn measurement_accumulate_failure_total_stays_absorbing() {
+        let p: Measurement<&str, u64> = Measurement::measured(7);
+        let f: Measurement<&str, u64> = Measurement::failed("e", u64::total());
+        assert_eq!(
+            p.clone().accumulate(f.clone()),
+            Imperfect::Failure("e", u64::MAX)
+        );
+        assert_eq!(f.accumulate(p), Imperfect::Failure("e", u64::MAX));
+
+        let p: Measurement<&str, u64> = Measurement::measured(u64::total());
+        let f: Measurement<&str, u64> = Measurement::failed("e", 3);
+        assert_eq!(
+            p.clone().accumulate(f.clone()),
+            Imperfect::Failure("e", u64::MAX)
+        );
+        assert_eq!(f.accumulate(p), Imperfect::Failure("e", u64::MAX));
+    }
+
+    /// Property: for every pair of losses and every case pairing that
+    /// involves a Failure, the accumulated loss is `self.combine(other)`.
+    fn accumulate_keeps_loss_law<L: Loss + PartialEq + std::fmt::Debug>(samples: &[L]) {
+        for l1 in samples {
+            for l2 in samples {
+                let p1: Measurement<&str, L> = Imperfect::Partial((), l1.clone());
+                let f1: Measurement<&str, L> = Imperfect::Failure("a", l1.clone());
+                let f2: Measurement<&str, L> = Imperfect::Failure("b", l2.clone());
+                let p2: Measurement<&str, L> = Imperfect::Partial((), l2.clone());
+                let both = l1.clone().combine(l2.clone());
+                assert_eq!(
+                    p1.accumulate(f2.clone()),
+                    Imperfect::Failure("b", both.clone())
+                );
+                assert_eq!(
+                    f1.clone().accumulate(p2),
+                    Imperfect::Failure("a", both.clone())
+                );
+                assert_eq!(f1.accumulate(f2), Imperfect::Failure("a", both));
+            }
+        }
+    }
+
+    #[test]
+    fn measurement_accumulate_keeps_loss_across_loss_impls() {
+        accumulate_keeps_loss_law::<u64>(&[0, 1, 5, u64::total()]);
+        accumulate_keeps_loss_law::<usize>(&[0, 2, usize::total()]);
+        accumulate_keeps_loss_law::<Vec<String>>(&[vec![], vloss(&["x"]), vloss(&["y", "z"])]);
+        accumulate_keeps_loss_law::<String>(&[String::new(), "a".into(), "bc".into()]);
+        accumulate_keeps_loss_law::<ConvergenceLoss>(&[
+            ConvergenceLoss::zero(),
+            ConvergenceLoss::new(3),
+            ConvergenceLoss::new(9),
+            ConvergenceLoss::total(),
+        ]);
+        accumulate_keeps_loss_law::<(u64, Vec<String>)>(&[
+            (0, vec![]),
+            (1, vloss(&["x"])),
+            (u64::total(), vloss(&["y"])),
+        ]);
     }
 
     // --- Imperfect with ConvergenceLoss ---
