@@ -172,12 +172,8 @@ where
                 l
             }
             Imperfect::Failure(e, l) => {
-                // Deliberately broken: short-circuit like the bind.
-                let l = match loss {
-                    Some(acc) => acc.combine(l),
-                    None => l,
-                };
-                return Imperfect::Failure(e, l);
+                errors.push(e);
+                l
             }
         };
         loss = Some(match loss {
