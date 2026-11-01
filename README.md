@@ -185,6 +185,35 @@ Both branches are optional and independent. `recover` handles Partial (value cam
 
 [Macro guide ->](docs/macro.md)
 
+## Precedence
+
+`eh!` short-circuits: a `Failure` hides any later `Partial`, even one carrying something the caller knows about. When several results already exist and you need to choose which one is visible, `join_with` collects all of them under an order **you** supply. terni has no default order.
+
+```rust
+use terni::{join_with, Imperfect, Outranks, Precedence};
+
+type Marks = Vec<&'static str>;
+
+/// Signed: a known twist outranks received darkness.
+struct TwistFirst;
+impl Precedence<&'static str, Marks> for TwistFirst {
+    fn known_twist(&self, loss: &Marks) -> bool { loss.contains(&"twist") }
+    fn outranks(&self, _darkness: &&'static str) -> Outranks { Outranks::Twist }
+}
+
+let parts: Vec<Imperfect<i32, &'static str, Marks>> = vec![
+    Imperfect::Failure("dark", vec!["dark"]),
+    Imperfect::Partial(7, vec!["twist"]),
+];
+
+// The twist shows. The darkness stays in the loss.
+assert_eq!(join_with(&TwistFirst, parts), Imperfect::Partial(vec![7], vec!["dark", "twist"]));
+```
+
+The order decides only what's visible. Under any order, the combined loss is the `combine` of every part's loss. terni ships no `Precedence` implementation, no `Default`, and no blanket impl, so a join without a signed order doesn't compile.
+
+[Precedence guide →](docs/precedence.md)
+
 ## More
 
 - [Macro](docs/macro.md) — `eh!` block macro, `IntoEh` trait, how it works
@@ -193,6 +222,7 @@ Both branches are optional and independent. `recover` handles Partial (value cam
 - [Context](docs/context.md) — `Eh` struct, mixing `Imperfect` and `Result`
 - [Terni-functor](docs/terni-functor.md) — the math behind `.eh()`
 - [Migration](docs/migration.md) — moving from `Result<T, E>` to `Imperfect<T, E, L>`
+- [Precedence](docs/precedence.md) — `join_with`: collect results under a signed order, no default
 - [Flight recorder](docs/flight-recorder.md) — `Failure(E, L)` as production telemetry, not stack traces
 - [Benchmarks](docs/benchmarks.md) — 0.65 ns per honest step, zero on the success path
 

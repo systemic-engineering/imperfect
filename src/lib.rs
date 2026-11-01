@@ -101,6 +101,9 @@ pub use terni_macros::eh;
 // when expanded inside this crate's own tests.
 extern crate self as terni;
 
+pub mod precedence;
+pub use precedence::{join_with, Outranks, Precedence};
+
 pub mod transparency;
 pub use transparency::{verdict_union, Diagnostic, OpacityMap, PropertyVerdict, Transparency};
 

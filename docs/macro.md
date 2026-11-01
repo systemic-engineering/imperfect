@@ -187,6 +187,8 @@ The `eh!` proc macro rewrites the block:
 
 **`return` returns from the block, not the enclosing function.** The macro wraps your code in a closure. `return` exits that closure, not your function. Use `?` for early exit from `eh!` blocks.
 
+**A `Failure` hides everything after it.** `?` short-circuits, so a later `Partial` is never seen, even one whose loss carries something you need to show (a known twist). That is the bind working as intended. When the results already exist and you need to decide which one is visible, collect them with [`join_with`](precedence.md) under a signed `Precedence` instead.
+
 **No `async` support.** The closure wrapper doesn't interact well with `.await`. This needs design work and will come in a future release.
 
 **`?` in closures accumulates to the same context.** If you use `?` inside a closure within `eh!`, loss accumulates into the outer block's context. This is usually what you want.
