@@ -8,8 +8,11 @@
 #![cfg(feature = "fractal")]
 
 use std::collections::BTreeSet;
+use std::convert::Infallible;
 
-use terni::fractal::{darkness_laws, join, Darkness, Darknesses, Joined, KindOrder};
+use terni::fractal::{
+    darkness_laws, join, twist_laws, Darkness, Darknesses, Joined, KindOrder, TwistOrder,
+};
 use terni::Imperfect;
 
 // --- Darkness impls under test -------------------------------------------
@@ -89,6 +92,62 @@ impl KindOrder<Hole> for ReceivedFirst {
     type Kind = std::cmp::Reverse<Kind>;
     fn kind(&self, d: &Hole) -> Self::Kind {
         std::cmp::Reverse(d.kind)
+    }
+}
+
+// Orders that name no twist say so explicitly: there is no default.
+impl TwistOrder<i32, Hole, Marks> for ParadoxFirst {
+    fn known_twist(&self, _part: &Lit) -> Option<Kind> {
+        None
+    }
+}
+
+impl TwistOrder<i32, Hole, Marks> for ReceivedFirst {
+    fn known_twist(&self, _part: &Lit) -> Option<std::cmp::Reverse<Kind>> {
+        None
+    }
+}
+
+type Lit = Imperfect<i32, Infallible, Marks>;
+
+fn twisted(part: &Lit) -> bool {
+    match part {
+        Imperfect::Partial(_, loss) => loss.contains(&"twist"),
+        // A twist can also be read from a value: 42 is marked.
+        Imperfect::Success(v) => *v == 42,
+        Imperfect::Failure(never, _) => match *never {},
+    }
+}
+
+/// Signed: a known twist outranks every darkness (prism-012).
+/// Received 1, paradox 2, twist 3.
+struct TwistOverDark;
+impl KindOrder<Hole> for TwistOverDark {
+    type Kind = u8;
+    fn kind(&self, d: &Hole) -> u8 {
+        match d.kind {
+            Kind::Received => 1,
+            Kind::Paradox => 2,
+        }
+    }
+}
+impl TwistOrder<i32, Hole, Marks> for TwistOverDark {
+    fn known_twist(&self, part: &Lit) -> Option<u8> {
+        twisted(part).then_some(3)
+    }
+}
+
+/// The other signing: every darkness outranks a known twist.
+struct DarkOverTwist;
+impl KindOrder<Hole> for DarkOverTwist {
+    type Kind = u8;
+    fn kind(&self, d: &Hole) -> u8 {
+        TwistOverDark.kind(d)
+    }
+}
+impl TwistOrder<i32, Hole, Marks> for DarkOverTwist {
+    fn known_twist(&self, part: &Lit) -> Option<u8> {
+        twisted(part).then_some(0)
     }
 }
 
@@ -321,6 +380,77 @@ fn joined_join_is_associative_and_join_of_parts_is_the_fold() {
     let right = one(&parts[0]).join(one(&parts[1]).join(one(&parts[2])).join(one(&parts[3])));
     assert_eq!(left, right);
     assert_eq!(left, join(parts));
+}
+
+// --- Twists are twisted light, never darkness ---------------------------
+
+fn dark() -> Part {
+    Imperfect::Failure(hole("dark", Kind::Paradox), vec!["cost"])
+}
+
+fn twist() -> Part {
+    Imperfect::Partial(7, vec!["twist"])
+}
+
+#[test]
+fn a_known_twist_shows_over_darkness_in_either_order() {
+    for parts in [vec![dark(), twist()], vec![twist(), dark()]] {
+        let joined = join(parts);
+        match joined.view(&TwistOverDark) {
+            Imperfect::Partial(values, loss) => {
+                assert_eq!(values, vec![&7]);
+                assert!(loss.contains(&"twist") && loss.contains(&"cost"));
+            }
+            other => panic!("the twist must show, got {other:?}"),
+        }
+        // The darkness is kept, not shown.
+        assert_eq!(
+            joined.zoom().get(&("dark", Kind::Paradox)),
+            Some(&hole("dark", Kind::Paradox))
+        );
+    }
+}
+
+#[test]
+fn a_twist_read_from_a_value_shows_as_partial() {
+    let joined = join(vec![dark(), Imperfect::Success(42)]);
+    assert_eq!(
+        joined.view(&TwistOverDark),
+        Imperfect::Partial(vec![&42], vec!["cost"])
+    );
+}
+
+#[test]
+fn darkness_shows_when_the_order_ranks_it_above_the_twist() {
+    let joined = join(vec![twist(), dark()]);
+    assert_eq!(
+        joined.view(&DarkOverTwist),
+        Imperfect::Failure(vec![&hole("dark", Kind::Paradox)], vec!["twist", "cost"])
+    );
+}
+
+#[test]
+fn an_order_that_names_no_twist_keeps_the_darkness_view() {
+    let joined = join(vec![twist(), dark()]);
+    assert!(joined.view(&ParadoxFirst).is_err());
+}
+
+#[test]
+fn the_twist_law_helper_holds_for_both_signings() {
+    let parts = vec![
+        twist(),
+        dark(),
+        Imperfect::Success(1),
+        Imperfect::Failure(hole("r", Kind::Received), vec![]),
+        Imperfect::Success(42),
+    ];
+    assert_eq!(twist_laws(&parts, &TwistOverDark), Ok(()));
+    assert_eq!(twist_laws(&parts, &DarkOverTwist), Ok(()));
+    assert_eq!(twist_laws(&parts, &ParadoxFirst), Ok(()));
+    assert_eq!(
+        twist_laws::<i32, Hole, Marks, _>(&[], &TwistOverDark),
+        Ok(())
+    );
 }
 
 #[test]
