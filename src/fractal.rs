@@ -94,6 +94,52 @@ use std::convert::Infallible;
 
 use crate::{Imperfect, Loss};
 
+pub mod mandelbrot;
+
+/// A membership verdict that names its own arms.
+///
+/// `In` and `Out` are both decided: each is a theorem with its witness.
+/// `Undecided` is a fact about the observer (a budget ran out, or only a
+/// ruler's verdict such as a float or grain-level cycle was seen), never a
+/// claim about the set.
+///
+/// The map into [`Imperfect`] is deliberate, see
+/// [`into_imperfect`](Self::into_imperfect): an `Out` is a value, never a
+/// darkness.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Membership<I, O, U> {
+    /// Proved inside, with its certificate.
+    In(I),
+    /// Proved outside, with its witness.
+    Out(O),
+    /// No certificate found yet.
+    Undecided(U),
+}
+
+impl<I, O, U> Membership<I, O, U> {
+    /// Whether this verdict is `In` or `Out`.
+    pub fn is_decided(&self) -> bool {
+        !matches!(self, Membership::Undecided(_))
+    }
+
+    /// The deliberate map: `In` and `Out` to `Success`, `Undecided` to
+    /// `Partial` with the loss `measure` reads from it. `measure` is called
+    /// only for `Undecided`. Nonsense input never reaches a `Membership`;
+    /// an instance refuses it as `Failure` itself.
+    pub fn into_imperfect<E, L: Loss>(
+        self,
+        measure: impl FnOnce(&U) -> L,
+    ) -> Imperfect<Self, E, L> {
+        match self {
+            Membership::Undecided(u) => {
+                let loss = measure(&u);
+                Imperfect::Partial(Membership::Undecided(u), loss)
+            }
+            decided => Imperfect::Success(decided),
+        }
+    }
+}
+
 /// An error that names itself by a content address.
 ///
 /// **Contract:** the address is a content address, location included. Two

@@ -82,7 +82,10 @@ fn i_is_in_by_an_exact_preperiodic_cycle() {
         InWitness::Cycle {
             start: 2,
             period: 2,
-            cycle: vec![Complex::new(q(-1, 1), q(1, 1)), Complex::new(q(0, 1), q(-1, 1))],
+            cycle: vec![
+                Complex::new(q(-1, 1), q(1, 1)),
+                Complex::new(q(0, 1), q(-1, 1))
+            ],
         }
     );
 }
@@ -126,7 +129,10 @@ fn one_is_out_with_an_exact_escape_witness() {
 #[test]
 fn far_outside_escapes_at_the_first_step() {
     let c = Complex::new(q(3, 1), q(-1, 2));
-    assert_eq!(membership(c, BUDGET), Membership::Out(Escape { n: 1, z: c }));
+    assert_eq!(
+        membership(c, BUDGET),
+        Membership::Out(Escape { n: 1, z: c })
+    );
 }
 
 #[test]
@@ -194,6 +200,32 @@ fn forged_certificates_do_not_verify() {
         cycle: vec![int(0)],
     };
     assert!(!short.verifies(&int(-1)));
+    // The right length with a wrong member is false.
+    let wrong = InWitness::Cycle {
+        start: 0,
+        period: 2,
+        cycle: vec![int(0), int(1)],
+    };
+    assert!(!wrong.verifies(&int(-1)));
+    // An interval that misses 0 is false.
+    let off_zero = InWitness::Interval {
+        lo: q(1, 4),
+        hi: q(1, 2),
+    };
+    assert!(!off_zero.verifies(&re(q(1, 4))));
+    // A lopsided interval whose image overshoots is false.
+    let lopsided = InWitness::Interval {
+        lo: q(-3, 1),
+        hi: q(2, 1),
+    };
+    assert!(!lopsided.verifies(&int(-2)));
+}
+
+#[test]
+fn a_non_real_point_without_a_cycle_is_undecided() {
+    // Inside the main cardioid, but no exact cycle and no real interval.
+    let c = Complex::new(q(-1, 2), q(1, 4));
+    assert!(matches!(membership(c, 1000), Membership::Undecided(_)));
 }
 
 #[test]
@@ -214,7 +246,12 @@ fn decided_arms_map_to_success() {
 
 #[test]
 fn nonsense_input_maps_to_failure() {
-    for (x, y) in [(f64::NAN, 0.0), (0.0, f64::NAN), (f64::INFINITY, 0.0), (0.0, f64::NEG_INFINITY)] {
+    for (x, y) in [
+        (f64::NAN, 0.0),
+        (0.0, f64::NAN),
+        (f64::INFINITY, 0.0),
+        (0.0, f64::NEG_INFINITY),
+    ] {
         match of_f64(x, y, BUDGET) {
             Imperfect::Failure(refused, loss) => {
                 assert_eq!(refused.input_bits(), (x.to_bits(), y.to_bits()));
@@ -260,10 +297,7 @@ fn out_sits_among_the_values_never_among_the_darknesses() {
     // The only darkness is the refused input.
     assert_eq!(joined.darkness_count(), 1);
     let only: Vec<&Refused> = joined.zoom().iter().collect();
-    assert_eq!(
-        only[0].address(),
-        (f64::NAN.to_bits(), 0.0f64.to_bits())
-    );
+    assert_eq!(only[0].address(), (f64::NAN.to_bits(), 0.0f64.to_bits()));
 }
 
 #[test]
@@ -294,5 +328,8 @@ fn rationals_are_exact_and_normalized() {
     assert_eq!(Rational::from_f64(f64::NAN), None);
     assert_eq!(Rational::from_f64(1e300), None);
     assert_eq!(Rational::from_f64(f64::MIN_POSITIVE), None);
+    // Subnormal: exact, but too small for i128.
+    assert_eq!(Rational::from_f64(5e-324), None);
+    assert_eq!(Rational::from_f64(-0.375), Some(q(-3, 8)));
     assert_eq!(Rational::new(i128::MIN, -1), None);
 }
