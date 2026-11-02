@@ -13,6 +13,8 @@ readme = "README.md"
 default = ["macros"]
 macros = ["dep:terni-macros"]
 serde = ["dep:serde"]
+# Additive only: new items under `terni::fractal`, never a change to an existing one.
+fractal = []
 
 [dependencies]
 terni-macros = { version = "0.7", path = "macros", optional = true }
