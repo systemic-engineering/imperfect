@@ -30,16 +30,29 @@
 //! [`join`] keeps every part as data: the values of the `Success` and
 //! `Partial` parts (each with its own grade and loss), the union of the
 //! darknesses, and the combined loss. [`Joined::view`] is a pure function of
-//! what was kept: under a caller's signed [`KindOrder`] it shows the
-//! darknesses of the greatest kind, so `shows(A ∪ B) = max(shows A, shows B)`.
-//! The union has no parameter, so it is law; the order belongs to the caller.
-//! terni ships no order, no default and no blanket impl.
+//! what was kept: under a caller's signed [`TwistOrder`] it shows the
+//! maximum over the known twists and the darknesses, on one kind scale, so
+//! `shows(A ∪ B) = max(shows A, shows B)`. The union has no parameter, so it
+//! is law; the order belongs to the caller. terni ships no order, no default
+//! and no blanket impl.
+//!
+//! # Twists are not darknesses
+//!
+//! A known twist (a paradox, say) is **twisted light**: something arrived,
+//! and it is strange. It is carried in a part's value or loss, and **must
+//! never be stored as a [`Darkness`]**, which is received darkness: no light
+//! arrived. The caller's [`TwistOrder::known_twist`] recognises a twist in a
+//! kept part and ranks it on the same scale as the darknesses. When a twist
+//! ranks at least as high as every darkness, the view is `Partial`, and the
+//! darknesses stay in [`Joined::zoom`], kept but not shown. A known twist
+//! can therefore always be made to show; hidden, it would become covert.
 //!
 //! **L measures, E records.** The combined loss may be a lossy measure; the
 //! darknesses and the joined structure are recoverable.
 //!
 //! ```rust
-//! use terni::fractal::{join, Darkness, KindOrder};
+//! use std::convert::Infallible;
+//! use terni::fractal::{join, Darkness, KindOrder, TwistOrder};
 //! use terni::Imperfect;
 //!
 //! #[derive(Clone, Debug, PartialEq)]
@@ -55,6 +68,12 @@
 //! impl KindOrder<Hole> for DeepFirst {
 //!     type Kind = bool;
 //!     fn kind(&self, d: &Hole) -> bool { d.deep }
+//! }
+//! impl TwistOrder<i32, Hole, Vec<&'static str>> for DeepFirst {
+//!     // This order names no twist, and says so.
+//!     fn known_twist(&self, _part: &Imperfect<i32, Infallible, Vec<&'static str>>) -> Option<bool> {
+//!         None
+//!     }
 //! }
 //!
 //! let joined = join(vec![
@@ -145,6 +164,10 @@ impl<I, O, U> Membership<I, O, U> {
 /// **Contract:** the address is a content address, location included. Two
 /// darknesses with equal addresses are the same event, and so are equal.
 /// [`darkness_laws`] checks this on samples.
+///
+/// A darkness is received darkness: no light arrived. A known twist (e.g. a
+/// paradox) is twisted light, carried in a value or a loss and recognised by
+/// [`TwistOrder::known_twist`]. It must never be stored as a `Darkness`.
 pub trait Darkness {
     /// The address. Its order is the order darknesses are kept in.
     type Address: Ord;
@@ -163,6 +186,19 @@ pub trait KindOrder<E> {
 
     /// The kind of this darkness.
     fn kind(&self, darkness: &E) -> Self::Kind;
+}
+
+/// A signed order over the kept parts of a join: darkness kinds
+/// ([`KindOrder`]) plus the known twists, on the same scale.
+///
+/// No implementation, blanket impl or default is shipped, and
+/// [`known_twist`](Self::known_twist) has no default body: an order that
+/// names no twist returns `None`, and says so.
+pub trait TwistOrder<T, E, L: Loss>: KindOrder<E> {
+    /// Does this kept part carry a known twist (in its value or its loss)?
+    /// If so, its kind on the darkness scale. Mirrors
+    /// [`Precedence::known_twist`](crate::Precedence::known_twist).
+    fn known_twist(&self, part: &Imperfect<T, Infallible, L>) -> Option<Self::Kind>;
 }
 
 /// A finite set of darknesses under union, kept in address order.
@@ -339,12 +375,34 @@ impl<T, E: Darkness, L: Loss> Joined<T, E, L> {
     /// What shows, under the caller's signed order. A pure function of the
     /// kept parts; nothing is removed.
     ///
-    /// - darkness present: `Failure(every darkness of the greatest kind, loss)`;
-    /// - otherwise, any `Partial` value: `Partial(values, loss)` (sticky,
-    ///   even with zero loss);
+    /// shows = max over the known twists and the darknesses:
+    ///
+    /// - a darkness ranks strictly above every known twist:
+    ///   `Failure(every darkness of the greatest kind, loss)`;
+    /// - otherwise, a known twist, or any `Partial` value:
+    ///   `Partial(values, loss)` (sticky, even with zero loss); darknesses
+    ///   stay in [`zoom`](Self::zoom), kept, not shown;
     /// - otherwise `Success(values)`.
-    pub fn view<O: KindOrder<E> + ?Sized>(&self, order: &O) -> Imperfect<Vec<&T>, Vec<&E>, L> {
-        if !self.darkness.is_empty() {
+    ///
+    /// A tie goes to the twist, as in [`join_with`](crate::join_with), where
+    /// darkness shows only when it outranks the twist. An order that names no
+    /// twist gets the darkness view whenever there is darkness.
+    pub fn view<O: TwistOrder<T, E, L> + ?Sized>(
+        &self,
+        order: &O,
+    ) -> Imperfect<Vec<&T>, Vec<&E>, L> {
+        let twist = self
+            .values
+            .iter()
+            .filter_map(|p| order.known_twist(p))
+            .max();
+        let dark = self.darkness.iter().map(|d| order.kind(d)).max();
+        let darkness_shows = match (dark, &twist) {
+            (None, _) => false,
+            (Some(_), None) => true,
+            (Some(dark), Some(twist)) => dark > *twist,
+        };
+        if darkness_shows {
             return Imperfect::Failure(self.darkness.shows(order), self.loss.clone());
         }
         let values: Vec<&T> = self
@@ -355,7 +413,7 @@ impl<T, E: Darkness, L: Loss> Joined<T, E, L> {
                 Imperfect::Failure(never, _) => match *never {},
             })
             .collect();
-        if self.values.iter().any(Imperfect::is_partial) {
+        if twist.is_some() || self.values.iter().any(Imperfect::is_partial) {
             Imperfect::Partial(values, self.loss.clone())
         } else {
             Imperfect::Success(values)
@@ -469,7 +527,49 @@ where
         "view: the kept parts depend on order or grouping",
     )?;
     law(
-        forward.view(order) == backward.view(order) && forward.view(order) == grouped.view(order),
+        forward.zoom().shows(order) == backward.zoom().shows(order)
+            && forward.zoom().shows(order) == grouped.zoom().shows(order),
         "view: depends only on the parts",
     )
+}
+
+/// The twist half of the view law, checked over parts: what shows depends
+/// only on the parts, not on their order or grouping, with known twists and
+/// darknesses ranked on one scale. Returns the first law that breaks.
+pub fn twist_laws<T, E, L, O>(parts: &[Imperfect<T, E, L>], order: &O) -> Result<(), &'static str>
+where
+    T: Clone + PartialEq,
+    E: Darkness + Clone + PartialEq,
+    L: Loss + PartialEq,
+    O: TwistOrder<T, E, L> + ?Sized,
+{
+    let forward = join(parts.iter().cloned());
+    let backward = join(parts.iter().rev().cloned());
+    let (left, right) = parts.split_at(parts.len() / 2);
+    let grouped = join(left.iter().cloned()).join(join(right.iter().cloned()));
+    law(grouped == forward, "associative")?;
+    law(forward.zoom() == backward.zoom(), "commutative")?;
+    law(
+        same_shown(&forward.view(order), &backward.view(order)),
+        "view: twists and darknesses depend only on the parts",
+    )
+}
+
+/// Same arm, same shown darknesses, same values as a multiset.
+fn same_shown<T: PartialEq, E: PartialEq, L: Loss>(
+    a: &Imperfect<Vec<&T>, Vec<&E>, L>,
+    b: &Imperfect<Vec<&T>, Vec<&E>, L>,
+) -> bool {
+    let same_values = |x: &[&T], y: &[&T]| {
+        x.len() == y.len()
+            && x.iter().all(|v| {
+                x.iter().filter(|w| *w == v).count() == y.iter().filter(|w| *w == v).count()
+            })
+    };
+    match (a, b) {
+        (Imperfect::Success(x), Imperfect::Success(y))
+        | (Imperfect::Partial(x, _), Imperfect::Partial(y, _)) => same_values(x, y),
+        (Imperfect::Failure(x, _), Imperfect::Failure(y, _)) => x == y,
+        _ => false,
+    }
 }
