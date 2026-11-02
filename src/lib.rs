@@ -104,6 +104,9 @@ extern crate self as terni;
 pub mod precedence;
 pub use precedence::{join_with, Outranks, Precedence};
 
+#[cfg(feature = "fractal")]
+pub mod fractal;
+
 pub mod transparency;
 pub use transparency::{verdict_union, Diagnostic, OpacityMap, PropertyVerdict, Transparency};
 

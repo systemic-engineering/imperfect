@@ -172,7 +172,8 @@ fn union_is_commutative_associative_idempotent_with_empty_identity() {
 
 #[test]
 fn same_kind_different_location_are_two_events() {
-    let joined = Darknesses::of(hole("a", Kind::Received)).join(Darknesses::of(hole("b", Kind::Received)));
+    let joined =
+        Darknesses::of(hole("a", Kind::Received)).join(Darknesses::of(hole("b", Kind::Received)));
     assert_eq!(joined.count(), 2);
 }
 
@@ -186,7 +187,12 @@ fn the_law_helper_accepts_lawful_impls() {
     );
     assert_eq!(
         darkness_laws(
-            &[Named("x".into()), Named("yy".into()), Named("zz".into()), Named(String::new())],
+            &[
+                Named("x".into()),
+                Named("yy".into()),
+                Named("zz".into()),
+                Named(String::new())
+            ],
             &Longest
         ),
         Ok(())
@@ -309,7 +315,9 @@ fn view_shows_every_member_of_the_top_kind() {
 fn joined_join_is_associative_and_join_of_parts_is_the_fold() {
     let parts = mixed();
     let one = |p: &Part| Joined::of(p.clone());
-    let left = one(&parts[0]).join(one(&parts[1])).join(one(&parts[2]).join(one(&parts[3])));
+    let left = one(&parts[0])
+        .join(one(&parts[1]))
+        .join(one(&parts[2]).join(one(&parts[3])));
     let right = one(&parts[0]).join(one(&parts[1]).join(one(&parts[2])).join(one(&parts[3])));
     assert_eq!(left, right);
     assert_eq!(left, join(parts));
