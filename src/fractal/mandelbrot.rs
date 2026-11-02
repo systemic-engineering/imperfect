@@ -7,6 +7,17 @@
 //! - **`Out`:** some `|zₙ|² > 4`, compared exactly. Every `c` outside `M`
 //!   escapes at a finite `n` (the escape lemma), so `Out` is semi-decidable
 //!   and the witness is `(n, zₙ)`. The escape time is the witness, not loss.
+//! - **`In`, interior tests (tried first, before any iteration):** with
+//!   `c = x + iy` and `q = (x - ¼)² + y²`, the closed main cardioid
+//!   `q(q + (x - ¼)) ≤ y²/4` and the closed period-2 bulb
+//!   `(x + 1)² + y² ≤ 1/16`, each decided exactly. Both lie in `M`, which
+//!   is closed. Derivations: the cardioid is `c = μ/2 - μ²/4`, `|μ| ≤ 1`
+//!   (an attracting or indifferent fixed point with multiplier `μ`); around
+//!   `¼` that is `ρ ≤ (1 - cos θ)/2`, and the polynomial form reduces to
+//!   `(ρ + cos θ / 2)² ≤ ¼`, the same condition. The 2-cycle's multiplier
+//!   is `4(c + 1)`, so the bulb is `|c + 1| ≤ ¼`. Where a point also has an
+//!   exact cycle (0, -1), the interior proof is the one reported; the cycle
+//!   is still a valid certificate and still verifies.
 //! - **`In`, exact recurrence:** `zₘ₊ₚ = zₘ` in exact rationals. The orbit
 //!   is then eventually periodic, so bounded, so `c ∈ M`.
 //! - **`In`, exact real invariant interval:** for real `c`, an interval `I`
@@ -28,9 +39,11 @@
 //! Every certificate can be re-checked independently with
 //! [`InWitness::verifies`] and [`Escape::verifies`].
 //!
-//! Not included: the cardioid and period-2 bulb tests, and interval boxes
-//! with outward rounding for complex `c`. Those can come later as further
-//! `InWitness` arms.
+//! Not included: interval boxes with outward rounding for complex `c`, and
+//! the interior tests of other hyperbolic components. Those can come later
+//! as further `InWitness` arms. Until then, a point such as `c = -3/2` (in
+//! `M`, outside both interior tests, no rational interval, no exact cycle)
+//! is honestly `Undecided`: no finite certificate in this slice.
 
 use std::cmp::Ordering;
 
@@ -211,6 +224,11 @@ impl Complex {
 /// A certificate that `c ∈ M`.
 #[derive(Clone, Debug, PartialEq)]
 pub enum InWitness {
+    /// `c` is in the closed main cardioid: `q(q + (x - ¼)) ≤ y²/4`, with
+    /// `q = (x - ¼)² + y²`, exactly.
+    Cardioid,
+    /// `c` is in the closed period-2 bulb: `(x + 1)² + y² ≤ 1/16`, exactly.
+    Bulb,
     /// `z_start, …, z_{start+period-1}` repeat exactly: `z_{start+period} = z_start`.
     Cycle {
         /// The first index of the cycle.
@@ -233,6 +251,8 @@ impl InWitness {
     /// Re-check this certificate for `c` in exact arithmetic.
     pub fn verifies(&self, c: &Complex) -> bool {
         match self {
+            InWitness::Cardioid => in_cardioid(*c).unwrap_or(false),
+            InWitness::Bulb => in_bulb(*c).unwrap_or(false),
             InWitness::Cycle {
                 start,
                 period,
@@ -241,6 +261,24 @@ impl InWitness {
             InWitness::Interval { lo, hi } => interval_holds(*c, *lo, *hi).unwrap_or(false),
         }
     }
+}
+
+fn at_most(a: Rational, b: Rational) -> Option<bool> {
+    Some(a.compare(b)? != Ordering::Greater)
+}
+
+fn in_cardioid(c: Complex) -> Option<bool> {
+    let quarter = Rational { num: 1, den: 4 };
+    let a = c.re.sub(quarter)?;
+    let y2 = c.im.mul(c.im)?;
+    let q = a.mul(a)?.add(y2)?;
+    at_most(q.mul(q.add(a)?)?, y2.mul(quarter)?)
+}
+
+fn in_bulb(c: Complex) -> Option<bool> {
+    let b = c.re.add(Rational::ONE)?;
+    let lhs = b.mul(b)?.add(c.im.mul(c.im)?)?;
+    at_most(lhs, Rational { num: 1, den: 16 })
 }
 
 fn cycle_holds(c: Complex, start: usize, period: usize, cycle: &[Complex]) -> Option<bool> {
@@ -342,6 +380,11 @@ impl Darkness for Refused {
 
 /// Decide membership of an exact `c` within `budget` steps.
 pub fn membership(c: Complex, budget: usize) -> Membership<InWitness, Escape, Open> {
+    for interior in [InWitness::Cardioid, InWitness::Bulb] {
+        if interior.verifies(&c) {
+            return Membership::In(interior);
+        }
+    }
     let mut orbit = vec![Complex::ZERO];
     let mut z = Complex::ZERO;
     let mut n = 0;
