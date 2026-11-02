@@ -36,28 +36,71 @@ fn in_witness(c: Complex) -> InWitness {
     }
 }
 
+// The interior tests run first, so 0 and -1 are proved by Cardioid and
+// Bulb. Their exact cycles are still valid In proofs and still verify.
+
 #[test]
-fn zero_is_in_by_an_exact_fixed_point() {
-    assert_eq!(
-        in_witness(int(0)),
-        InWitness::Cycle {
-            start: 0,
-            period: 1,
-            cycle: vec![int(0)],
-        }
-    );
+fn zero_is_in_by_the_cardioid_and_by_an_exact_fixed_point() {
+    // x - 1/4 = -1/4, q = 1/16, q(q - 1/4) = -3/256 <= 0 = y²/4.
+    assert_eq!(in_witness(int(0)), InWitness::Cardioid);
+    let fixed = InWitness::Cycle {
+        start: 0,
+        period: 1,
+        cycle: vec![int(0)],
+    };
+    assert!(fixed.verifies(&int(0)));
 }
 
 #[test]
-fn minus_one_is_in_by_an_exact_two_cycle() {
-    assert_eq!(
-        in_witness(int(-1)),
-        InWitness::Cycle {
-            start: 0,
-            period: 2,
-            cycle: vec![int(0), int(-1)],
-        }
-    );
+fn minus_one_is_in_by_the_bulb_and_by_an_exact_two_cycle() {
+    // (x + 1)² + y² = 0 <= 1/16.
+    assert_eq!(in_witness(int(-1)), InWitness::Bulb);
+    let two_cycle = InWitness::Cycle {
+        start: 0,
+        period: 2,
+        cycle: vec![int(0), int(-1)],
+    };
+    assert!(two_cycle.verifies(&int(-1)));
+}
+
+#[test]
+fn minus_a_half_is_in_the_main_cardioid() {
+    // x - 1/4 = -3/4, q = 9/16, q(q + (x - 1/4)) = 9/16 · (-3/16) = -27/256
+    // <= y²/4 = 0.
+    assert_eq!(in_witness(re(q(-1, 2))), InWitness::Cardioid);
+}
+
+#[test]
+fn minus_one_plus_a_tenth_i_is_in_the_bulb_not_the_cardioid() {
+    // Bulb: (x + 1)² + y² = 0 + 1/100 <= 1/16.
+    // Cardioid: x - 1/4 = -5/4, q = 25/16 + 1/100 = 629/400,
+    // q + (x - 1/4) = 129/400, q(q + (x - 1/4)) = 81141/160000,
+    // y²/4 = 400/160000: 81141 > 400, so outside the cardioid.
+    let c = Complex::new(q(-1, 1), q(1, 10));
+    assert!(!InWitness::Cardioid.verifies(&c));
+    assert_eq!(in_witness(c), InWitness::Bulb);
+}
+
+#[test]
+fn minus_three_halves_is_honestly_undecided() {
+    // In M (every real c in [-2, 1/4] is), but outside both interior tests:
+    // Cardioid: x - 1/4 = -7/4, q = 49/16, q + (x - 1/4) = 21/16,
+    //   q(q + (x - 1/4)) = 1029/256 > 0 = y²/4.
+    // Bulb: (x + 1)² = 1/4 > 1/16.
+    // Interval: 1 - 4c = 7 has no rational root.
+    // Orbit: 0, -3/2, 3/4, -15/16, -159/256, ... not periodic; the
+    // denominators square each step until i128 runs out.
+    // No finite certificate in this slice.
+    let c = re(q(-3, 2));
+    assert!(!InWitness::Cardioid.verifies(&c));
+    assert!(!InWitness::Bulb.verifies(&c));
+    assert!(matches!(
+        membership(c, 1000),
+        Membership::Undecided(Open {
+            stop: Stop::Precision,
+            ..
+        })
+    ));
 }
 
 #[test]
@@ -91,24 +134,33 @@ fn i_is_in_by_an_exact_preperiodic_cycle() {
 }
 
 #[test]
-fn the_cusp_quarter_is_in_by_an_exact_invariant_interval() {
+fn the_cusp_quarter_is_in_on_the_closed_cardioid() {
+    // q = 0, so q(q + (x - 1/4)) = 0 <= 0: on the boundary, and M is closed.
+    assert_eq!(in_witness(re(q(1, 4))), InWitness::Cardioid);
+    // Its exact invariant interval still verifies:
     // f([-1/2, 1/2]) = [1/4, 1/2], inside [-1/2, 1/2], and 0 is in it.
-    assert_eq!(
-        in_witness(re(q(1, 4))),
-        InWitness::Interval {
-            lo: q(-1, 2),
-            hi: q(1, 2),
-        }
-    );
+    let interval = InWitness::Interval {
+        lo: q(-1, 2),
+        hi: q(1, 2),
+    };
+    assert!(interval.verifies(&re(q(1, 4))));
 }
 
 #[test]
-fn minus_three_quarters_is_in_by_an_exact_invariant_interval() {
+fn minus_three_quarters_is_in_on_the_closed_cardioid() {
+    // x - 1/4 = -1, q = 1, q(q - 1) = 0 <= 0.
+    assert_eq!(in_witness(re(q(-3, 4))), InWitness::Cardioid);
+}
+
+#[test]
+fn minus_twenty_one_sixteenths_is_in_by_an_exact_invariant_interval() {
+    // Outside both interior tests, orbit not periodic, but 1 - 4c = 25/4
+    // has root 5/2, so beta = 7/4, and f([-7/4, 7/4]) = [-21/16, 7/4].
     assert_eq!(
-        in_witness(re(q(-3, 4))),
+        in_witness(re(q(-21, 16))),
         InWitness::Interval {
-            lo: q(-3, 2),
-            hi: q(3, 2),
+            lo: q(-7, 4),
+            hi: q(7, 4),
         }
     );
 }
@@ -153,20 +205,23 @@ fn a_small_budget_on_a_slow_point_is_undecided() {
 
 #[test]
 fn a_float_cycle_is_never_in() {
-    // -1/2 is inside M, but its exact orbit is not periodic: it converges to
-    // the irrational fixed point (1 - √3)/2. A float orbit stalls on a
-    // false fixed point; the exact orbit runs out of precision instead.
-    let got = membership(re(q(-1, 2)), 1000);
-    assert!(
-        matches!(
-            got,
-            Membership::Undecided(Open {
-                stop: Stop::Precision,
-                ..
-            })
-        ),
-        "got {got:?}"
-    );
+    // Both points are attracted to an irrational attracting 3-cycle (the
+    // real period-3 window, and the period-3 bulb near -0.12 + 0.74i),
+    // outside the cardioid and the bulb. A float orbit stalls on a false
+    // cycle; the exact orbit is not periodic and runs out of precision.
+    for c in [re(q(-225, 128)), Complex::new(q(-1, 8), q(3, 4))] {
+        let got = membership(c, 1000);
+        assert!(
+            matches!(
+                got,
+                Membership::Undecided(Open {
+                    stop: Stop::Precision,
+                    ..
+                })
+            ),
+            "got {got:?}"
+        );
+    }
 }
 
 #[test]
@@ -219,12 +274,23 @@ fn forged_certificates_do_not_verify() {
         hi: q(2, 1),
     };
     assert!(!lopsided.verifies(&int(-2)));
+    // Interior claims outside their regions are false.
+    assert!(!InWitness::Cardioid.verifies(&int(-2)));
+    assert!(!InWitness::Cardioid.verifies(&int(-1)));
+    assert!(!InWitness::Bulb.verifies(&int(0)));
+    assert!(!InWitness::Bulb.verifies(&re(q(-1, 2))));
+    assert!(!InWitness::Bulb.verifies(&Complex::new(q(-1, 1), q(1, 3))));
 }
 
 #[test]
-fn a_non_real_point_without_a_cycle_is_undecided() {
-    // Inside the main cardioid, but no exact cycle and no real interval.
-    let c = Complex::new(q(-1, 2), q(1, 4));
+fn a_non_real_point_without_a_certificate_is_undecided() {
+    // -1/8 + 3/4 i, in the period-3 bulb, outside both interior tests:
+    // Cardioid: x - 1/4 = -3/8, q = 9/64 + 36/64 = 45/64,
+    //   q + (x - 1/4) = 21/64, q(q + (x - 1/4)) = 945/4096 > 576/4096 = y²/4.
+    // Bulb: (x + 1)² + y² = 49/64 + 36/64 > 1/16.
+    let c = Complex::new(q(-1, 8), q(3, 4));
+    assert!(!InWitness::Cardioid.verifies(&c));
+    assert!(!InWitness::Bulb.verifies(&c));
     assert!(matches!(membership(c, 1000), Membership::Undecided(_)));
 }
 
@@ -240,7 +306,7 @@ fn decided_arms_map_to_success() {
     ));
     assert!(matches!(
         of_f64(0.25, 0.0, BUDGET),
-        Imperfect::Success(Membership::In(InWitness::Interval { .. }))
+        Imperfect::Success(Membership::In(InWitness::Cardioid))
     ));
 }
 
